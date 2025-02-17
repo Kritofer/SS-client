@@ -96,9 +96,9 @@ The following is a non-exhaustive list of build arguments that can be passed to 
   Note that this requires a running MySQL/MariaDB database on localhost with this setup:
 
 ```
-CREATE DATABASE ddnet;
-CREATE USER 'ddnet'@'localhost' IDENTIFIED BY 'thebestpassword';
-GRANT ALL PRIVILEGES ON ddnet.* TO 'ddnet'@'localhost';
+CREATE DATABASE ss_client;
+CREATE USER 'ss_client'@'localhost' IDENTIFIED BY 'thebestpassword';
+GRANT ALL PRIVILEGES ON ss_client.* TO 'ss_client'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
