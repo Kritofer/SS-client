@@ -17,17 +17,17 @@ Cloning
 
 To clone this repository with full history and external libraries (~350 MB):
 
-    git clone --recursive https://github.com/ddnet/ddnet
+    git clone --recursive https://github.com/Kritofer/SS-client
 
 To clone this repository with full history when you have the necessary libraries on your system already (~220 MB):
 
-    git clone https://github.com/ddnet/ddnet
+    git clone https://github.com/Kritofer/SS-client
 
 To clone this repository with history since we moved the libraries to https://github.com/ddnet/ddnet-libs (~40 MB):
 
-    git clone --shallow-exclude=included-libs https://github.com/ddnet/ddnet
+    git clone --shallow-exclude=included-libs https://github.com/Kritofer/SS-client
 
-To clone the libraries if you have previously cloned DDNet without them, or if you require the ddnet-libs history instead of a shallow clone:
+To clone the libraries if you have previously cloned SS-Client without them, or if you require the ddnet-libs history instead of a shallow clone:
 
     git submodule update --init --recursive
 
