@@ -240,7 +240,7 @@ void CSSClient::OnRender()
         
         for(auto pPos : Projectiles_Pos)
         {
-            m_pClient->m_Draw.CircleDraw(pPos, vec4(1.f, 1.f, 0.f, 1.f), 10.f); // yellow projectile trail
+            m_pClient->m_Draw.CircleDraw(pPos, vec4(.7f, .7f, .3f, 1.f), 10.f); // yellow projectile trail
         }
 
         Graphics()->TextureClear();    
