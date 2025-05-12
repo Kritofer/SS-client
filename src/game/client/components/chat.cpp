@@ -1260,6 +1260,12 @@ void CChat::OnRender()
 
 		float Blend = Now > Line.m_Time + 14 * time_freq() && !m_PrevShowChat ? 1.0f - (Now - Line.m_Time - 14 * time_freq()) / (2.0f * time_freq()) : 1.0f;
 
+		if (g_Config.m_ClSSClientCustomChat)
+		{
+			m_pClient->m_SSClient.ChatDraw(x, y, Line.m_aName, Line.m_aText);
+			continue;
+		}
+
 		// Draw backgrounds for messages in one batch
 		if(!g_Config.m_ClChatOld)
 		{

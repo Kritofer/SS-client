@@ -33,6 +33,9 @@
 #define CTY CNetObj_PlayerInput::m_TargetY
 #define CDR CNetObj_PlayerInput::m_Direction
 
+#define Bor(true, false, reason) \
+    (reason) ? true : false
+
 // Or, more generally (using pointer-to-member):
 template<typename U, typename V, typename M>
 inline void CHANGE(U &one, const V &two, M U::*member) {
@@ -59,6 +62,32 @@ void CSSClient::OnPlayerRender(vec2 Velocity, vec2 Position, float Angle, int Cl
     vec2 moved = Position + vec2(cosf(Angle), sinf(Angle)) * 400.0f;
 
     m_pClient->m_Draw.LineDraw(Position, moved, vec4(.0f, 1.f, .0f, .3f));
+}
+
+void CSSClient::ChatDraw(float x, float y, std::string Name, std::string Text)
+{
+    static float offset = 1.f;
+
+    if (GetTextSize(Text.c_str(), 5.f) == 0) { return; }
+
+    // Graphics()->QuadsBegin();
+
+    CUIRect r;
+    r.x = x;
+    r.y = y-offset;
+    r.h = 5.f+offset;
+    r.w = 107.5f;
+    r.Draw({0.0f, 0.0f, 0.0f, 0.3f}, IGraphics::CORNER_NONE, 0.0f);
+
+    // Graphics()->QuadsEnd();
+
+    ColorRGBA ori = TextRender()->GetTextColor();
+    TextRender()->TextColor({1.f, 1.f, 1.f, 1.f});
+
+    TextRender()->Text(x, y, 5.f, Text.c_str());
+
+    //end
+    TextRender()->TextColor(ori);
 }
 
 void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_PlayerInput *aInputdummy, int DummyId)
@@ -94,13 +123,22 @@ void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_Pla
     }
 
     if (g_Config.m_ClSSClientBotHookEnabled && g_Config.m_ClSSClientBotEnabled)
-        Avoid_Freeze(aInputdata, LocalId);
+    {
+        Avoid_Freeze(aInputdata,  LocalId);
+        Avoid_Freeze(aInputdummy, DummyId);
+    }
         
     if (g_Config.m_ClSSClientBotMoveEnabled && g_Config.m_ClSSClientBotEnabled)
-        LeftRight_Avoid(aInputdata, LocalId);
+    {
+        LeftRight_Avoid(aInputdata,  LocalId);
+        LeftRight_Avoid(aInputdummy, DummyId);
+    }
 
     if (g_Config.m_ClSSClientFakeAimEnabled)
-        Fake_Aim(aInputdata, LocalId);
+    {
+        Fake_Aim(aInputdata,  LocalId);
+        Fake_Aim(aInputdummy, DummyId);
+    }
 
     if (g_Config.m_ClSSClientAimbotEnabled)
         if (aInputdata->m_Hook || (aInputdata->m_Fire & 1))
@@ -113,6 +151,8 @@ void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_Pla
 void CSSClient::OnRender()
 {
     // CheckAndCrash();
+
+    static const CSkin *ninja_skin = m_pClient->m_Skins.Find("x_ninja");
 
     if (g_Config.m_ClSSClientHidden)
         return;
@@ -174,6 +214,7 @@ void CSSClient::OnRender()
 
     vec2 m_Pos = PPredict.m_Pos;
     vec2 m_PTarget = vec2(PPredict.m_Input.m_TargetX, PPredict.m_Input.m_TargetY);
+    vec2 m_DTarget = vec2(m_pClient->m_DummyInput.m_TargetX, m_pClient->m_DummyInput.m_TargetY);
 
     if (Weapon == WEAPON_LASER || Weapon == WEAPON_SHOTGUN)
     {
@@ -190,7 +231,23 @@ void CSSClient::OnRender()
             ShowGrenadePath(m_Pos, m_PTarget);
     }
 
-    m_pClient->m_Draw.CircleDraw(m_Target, vec4(.0f, .5f, 1.f, .2f), 20.0f);
+    {
+        vec2 POSS = Bor(TeePos, m_Pos, g_Config.m_ClSSClientTasState == 1);
+        vec2 LP1 = POSS;
+        vec2 LP2 = normalize(m_PTarget)*m_pClient->m_aTuning->m_HookLength;
+        vec2 T = LP1+LP2;
+        vec4 C;
+        Collision()->IntersectLine(LP1, LP1+LP2, nullptr, &LP2);
+        if (T == LP2)
+            C = vec4(.7f, .1f, .0f, 1.f);
+        else
+            C = vec4(.1f, .7f, .0f, 1.f);
+
+        m_pClient->m_Draw.LineDraw(LP1, LP2, C);
+    }
+
+    m_pClient->m_Draw.CircleDraw(m_Target,                    vec4(.0f, .5f, 1.f, .2f), 20.0f);
+    m_pClient->m_Draw.CircleDraw(m_DTarget + Camera.m_Center, vec4(1.f, .5f, .0f, .15f), 20.0f);
 
     for (size_t i = 1; i < m_PredictedPos.size(); i++)
     {
@@ -216,12 +273,11 @@ void CSSClient::OnRender()
 
     if (g_Config.m_ClSSClientTasState == 1 && TeePos != vec2(0,0))
     {
-        vec2 Pos = mix(TeePos, OldTeePos, 0.5);
+        vec2 Pos = GetTasPos();
 
         // Use ghost tee rendering (e.g., semi-transparent)
         CGameClient::CClientData pData = m_pClient->m_aClients[m_pClient->m_aLocalIds[g_Config.m_ClDummy]];
         CTeeRenderInfo pInfo = pData.m_RenderInfo;
-        const CSkin *ninja_skin = m_pClient->m_Skins.Find("x_ninja");
         // dbg_msg("SSC_SKIN", "valid: %d", ninja_skin.IsValidName(ninja_skin.GetName()));
 
         if (Frozen)
@@ -259,6 +315,7 @@ void CSSClient::OnRender()
         
         if (m_HookFlying)
             m_pClient->m_Draw.LineDraw(Pos, HPos, vec4(.7f, .7f, .1f, 1.f));
+        
     }
 }
 
@@ -603,13 +660,14 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
         if (!m_RecordInputs.empty()) m_RecordInputs.pop_back();
         if (!m_RecordInputsD.empty()) m_RecordInputsD.pop_back();
         g_Config.m_ClSSClientTasRewind = 0;
+        // return;
     }
 
     // —————————————————————————————————————————————
     // 5) Record this tick’s input when “step” is hit
     //    (you can just tap your bind to step frame‑by‑frame)
     // —————————————————————————————————————————————
-    if (g_Config.m_ClSSClientTasStep)
+    if (g_Config.m_ClSSClientTasStep) //  || (m_pClient->m_GameWorld.m_GameTick % 20) == 0
     {
         m_RecordInputs.push_back(nInput);
         m_RecordInputsD.push_back(kInput);
@@ -634,15 +692,14 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     if(!pLocalDummy)
       hasdummy = false;
 
-    vec2 o = TeePos;
+    OldTeePos = mix(OldTeePos, TeePos, 0.5);
+    vec2 o = OldTeePos;
 
     for (int i = 0; i < m_RecordInputs.size(); i++)
     {
         CNetObj_PlayerInput pinp = m_RecordInputs[i];
         CNetObj_PlayerInput dinp = m_RecordInputsD[i];
 
-        OldTeePos = TeePos;
-        o = OldTeePos;
         pLocalChar->OnDirectInput(&pinp);
         if (hasdummy)
         {pLocalDummy->OnDirectInput(&dinp);}

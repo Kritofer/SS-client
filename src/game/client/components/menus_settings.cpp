@@ -3558,13 +3558,13 @@ void CMenus::RenderSettingsSSClient(CUIRect MainView)
 			g_Config.m_ClSSClientBotAimAssistEnabled ^= 1;
 
 		Content.HSplitTop(LineMargin, &Space, &Content);
-		Ui()->DoScrollbarOption(&g_Config.m_ClSSClientBotTick, &g_Config.m_ClSSClientBotTick, &Space, "Avoid Ticks", 0, 30);
+		Ui()->DoScrollbarOption(&g_Config.m_ClSSClientBotTick, &g_Config.m_ClSSClientBotTick, &Space, "Avoid Ticks", 0, 60);
 		
 		Content.HSplitTop(LineMargin, &Space, &Content);
-		Ui()->DoScrollbarOption(&g_Config.m_ClSSClientBotTick1, &g_Config.m_ClSSClientBotTick1, &Space, "Hook Avoid Ticks", 0, 30);
+		Ui()->DoScrollbarOption(&g_Config.m_ClSSClientBotTick1, &g_Config.m_ClSSClientBotTick1, &Space, "Hook Avoid Ticks", 0, 60);
 
 		Content.HSplitTop(LineMargin, &Space, &Content);
-		Ui()->DoScrollbarOption(&g_Config.m_ClSSClientBotTick2, &g_Config.m_ClSSClientBotTick2, &Space, "Movement Avoid Ticks", 0, 30);
+		Ui()->DoScrollbarOption(&g_Config.m_ClSSClientBotTick2, &g_Config.m_ClSSClientBotTick2, &Space, "Movement Avoid Ticks", 0, 60);
 	}
 
 	if (m_SSClientSettingsTab == 3) // Tas Tab

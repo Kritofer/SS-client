@@ -1,6 +1,7 @@
 #pragma once
 #include <base/vmath.h>
 #include <game/client/component.h>
+#include <game/client/components/chat.h>
 #include <game/generated/protocol.h>
 #include <game/client/prediction/entities/character.h>
 #include <game/client/prediction/entities/laser.h>
@@ -40,6 +41,7 @@ public:
 	void ShowLaserPath(vec2 Pos, vec2 Target);
 	void ShowGrenadePath(vec2 Pos, vec2 Target);
 	void FixWeaponTP(CGameWorld &baseWorld);
+	void ChatDraw(float x, float y, std::string Name, std::string Text);
 	void SaveTas(const std::string &Filename);
 	void LoadTas(const std::string &Filename);
 	bool BounceCheck(const vec2 &src, const vec2 &dst, int maxBounces);
@@ -50,7 +52,7 @@ public:
 	int GetVersion() { return CURR_VER; };
 	float GetTextSize(const char* pText, float FontSize = 10.0f);
 
-	vec2 GetTasPos() { return mix(TeePos, OldTeePos, 0.5f); };
+	vec2 GetTasPos() { return OldTeePos; };
 
 	CSSClient();
 
