@@ -17,6 +17,7 @@
 #include <utility> 
 #include <stack>
 #include <fstream>
+#include <sstream>
 
 #define VEC2_TRANSFORM(v, min, max) \
     vec2( \
@@ -64,30 +65,111 @@ void CSSClient::OnPlayerRender(vec2 Velocity, vec2 Position, float Angle, int Cl
     m_pClient->m_Draw.LineDraw(Position, moved, vec4(.0f, 1.f, .0f, .3f));
 }
 
-void CSSClient::ChatDraw(float x, float y, std::string Name, std::string Text)
+void CSSClient::ChatDraw(float x, float y, std::string Name, std::string Text, bool IsFriend, bool ShouldHighlight)
 {
-    static float offset = 1.f;
+    static const float offset = 1.86f;
+    static const float MaxWidth = 145.f;
+    static const float FontSize = 5.f;
 
-    if (GetTextSize(Text.c_str(), 5.f) == 0) { return; }
-
-    // Graphics()->QuadsBegin();
-
-    CUIRect r;
-    r.x = x;
-    r.y = y-offset;
-    r.h = 5.f+offset;
-    r.w = 107.5f;
-    r.Draw({0.0f, 0.0f, 0.0f, 0.3f}, IGraphics::CORNER_NONE, 0.0f);
-
-    // Graphics()->QuadsEnd();
+    if (GetTextSize(Text.c_str(), FontSize) == 0) return;
 
     ColorRGBA ori = TextRender()->GetTextColor();
-    TextRender()->TextColor({1.f, 1.f, 1.f, 1.f});
 
-    TextRender()->Text(x, y, 5.f, Text.c_str());
+    std::string T;
+    if (Name == "*** ")
+    {
+        TextRender()->TextColor({1.f, 1.f, 0.5f, 1.f});
+        T = Name + Text;
+    }
+    else if (Name == "— ")
+    {
+        TextRender()->TextColor({0.6f, 1.f, 0.6f, 1.f});
+        T = Name + Text;
+    }
+    else {
+        if(IsFriend)
+        {
+            Name = "♡"+Name;
+        }
 
-    //end
+        if (ShouldHighlight)
+        {
+            TextRender()->TextColor({1.f, 0.6f, 0.6f, 1.f});
+            T = Name + ": " + Text;
+        }
+        else
+        {
+            TextRender()->TextColor({1.f, 1.f, 1.f, 1.f});
+            T = Name + ": " + Text;
+        }
+    }
+
+    // Wrap text by inserting \n when width exceeds MaxWidth
+    std::string Wrapped;
+    std::string CurrentLine;
+    std::istringstream iss(T);
+    std::string word;
+    float h = 0.f;
+    
+    while (iss >> word)
+    {
+        std::string test = CurrentLine.empty() ? word : CurrentLine + " " + word;
+        if (GetTextSize(test.c_str(), FontSize) > MaxWidth)
+        {
+            Wrapped += CurrentLine + "\n";
+            h += FontSize;
+            CurrentLine = word;
+        }
+        else
+        {
+            if (!CurrentLine.empty()) CurrentLine += " ";
+            CurrentLine += word;
+        }
+    }
+
+    if (!CurrentLine.empty())
+    {
+        Wrapped += CurrentLine;
+        h += FontSize + offset;
+    }
+
+    // Draw background
+    CUIRect r, l;
+    r.x = x;
+    l.x = x - 1.5f;
+    r.y = y - offset;
+    l.y = y - offset;
+    r.h = h;
+    l.h = h;
+    r.w = MaxWidth;
+    l.w = 1.5f;
+    r.Draw({0.0f, 0.0f, 0.0f, 0.3f}, IGraphics::CORNER_NONE, 0.0f);
+
+    l.Draw({0.8f, 0.0f, 0.0f, 0.7f}, IGraphics::CORNER_NONE, 0.0f);
+
+    // Draw wrapped text
+    TextRender()->Text(x, y, FontSize, Wrapped.c_str());
+
+    // Restore text color
     TextRender()->TextColor(ori);
+}
+
+void CSSClient::TempSaveC(IConfigManager *pConfig, void *pUserData)
+{
+    // Convert back to CSSClient instance
+    CSSClient *pThis = static_cast<CSSClient *>(pUserData);
+    pThis->TempSave();
+}
+
+void CSSClient::TempSave()
+{
+    SaveTas("data/temp.ssc");
+}
+
+void CSSClient::OnConsoleInit()
+{
+    LoadTas("data/temp.ssc");
+    ConfigManager()->RegisterCallback(&CSSClient::TempSaveC, this);
 }
 
 void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_PlayerInput *aInputdummy, int DummyId)
@@ -112,6 +194,7 @@ void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_Pla
 
         // and still update the engine’s dummy slot:
         // m_pClient->m_DummyInput = *aInputdummy;
+        // m_pClient->m_DummyFire = aInputdummy->m_Fire;
     }
     else if (g_Config.m_ClSSClientTasState == 3)
     {
@@ -254,7 +337,7 @@ void CSSClient::OnRender()
         vec2 Prev = m_PredictedPos[i - 1];
         vec2 Curr = m_PredictedPos[i];
         vec3 Color = m_PredictedColor[i];
-        m_pClient->m_Draw.LineDraw(Prev, Curr, vec4(Color.r, Color.g, Color.b, 0.8f));
+        m_pClient->m_Draw.CircleDraw(Curr, vec4(Color.r, Color.g, Color.b, 0.8f), 3.f);// m_pClient->m_Draw.LineDraw(Prev, Curr, vec4(Color.r, Color.g, Color.b, 0.8f));
     }
 
     int state = g_Config.m_ClSSClientTasState;
@@ -265,8 +348,8 @@ void CSSClient::OnRender()
 
         for (vec2 prevpos : m_TasPos)
         {
-            if (distance(ppos, prevpos) < 500.f) 
-                m_pClient->m_Draw.LineDraw(prevpos, pos, vec4(0.f, 0.6f, 0.3f, 1.f));
+            if (distance(ppos, prevpos) < 500.f && ppos != prevpos) 
+                m_pClient->m_Draw.CircleDraw(pos, vec4(0.f, 0.6f, 0.3f, .7f), 3.f); // m_pClient->m_Draw.LineDraw(prevpos, pos, vec4(0.f, 0.6f, 0.3f, 1.f));
             pos = prevpos;
         }
     }
@@ -517,20 +600,30 @@ void CSSClient::Predict_Pos()
     if (Predict.m_Pos == vec2(0,0))
         return;
 
-    CNetObj_PlayerInput bInp = Predict.m_Input;
-    int m_frozenticks = 0;
+    CGameWorld pred;
+    pred.CopyWorld(&m_pClient->m_PredictedWorld);
+
+    CNetObj_PlayerInput inp = Predict.m_Input;
+
+    CCharacter *pLocalChar = pred.GetCharacterById(m_pClient->m_aLocalIds[g_Config.m_ClDummy]);
+
+    if (!pLocalChar) return;
 
     for (int i = 0; i < g_Config.m_ClSSClientPredTicks ; i++)
     {
         vec3 Color = vec3(0.f, .7f, 0.f);
-        SimulateStep(&Predict, false);
-        if (Predict.m_IsInFreeze)
+        
+        pLocalChar->OnDirectInput(&inp);
+        pred.m_GameTick++;
+        pLocalChar->OnPredictedInput(&inp);
+
+        pred.Tick();
+
+        if (pLocalChar->m_FreezeTime > 0)
         {
             Color = vec3(.7f, 0.f, 0.f);
-            ZeroInput(&Predict.m_Input);
-            Predict.m_Input.m_Hook = 0;
         }
-        m_PredictedPos.push_back(Predict.m_Pos);
+        m_PredictedPos.push_back(pLocalChar->GetCore().m_Pos);
         m_PredictedColor.push_back(Color);
     }
 }
@@ -816,8 +909,8 @@ void CSSClient::PlayRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj_
         return;
     }
 
-    ZeroInput(pInput);
-    ZeroInput(dInput);
+    // ZeroInput(pInput);
+    // ZeroInput(dInput);
 
     bool HasDummy = true;
 
@@ -827,12 +920,12 @@ void CSSClient::PlayRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj_
     }
 
     // 2) If TAS playback is turned off, just clear input
-    if (!g_Config.m_ClSSClientTasState)
-    {
-        ZeroInput(pInput);
-        ZeroInput(dInput);
-        return;
-    }
+    // if (!g_Config.m_ClSSClientTasState)
+    // {
+    //     ZeroInput(pInput);
+    //     ZeroInput(dInput);
+    //     return;
+    // }
 
     // 3) If we've reached the end, stop playback and reset index
     if (m_RecordIndex >= static_cast<int>(m_RecordInputs.size()))
@@ -843,8 +936,8 @@ void CSSClient::PlayRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj_
             m_RecordIndex = 0;
             g_Config.m_ClSSClientTasState = 0;
         }
-        ZeroInput(pInput);
-        ZeroInput(dInput);
+        // ZeroInput(pInput);
+        // ZeroInput(dInput);
         return;
     }
 

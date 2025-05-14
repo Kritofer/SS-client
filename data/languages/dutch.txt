@@ -1376,7 +1376,7 @@ File '%s' already exists, do you want to overwrite it?
 Videos directory
 == Video's map
 
-Video was saved to '%s'
+Video was  '%s'
 == Video is opgeslagen naar '%s'
 
 Unable to save the skin

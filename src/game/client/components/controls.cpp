@@ -243,6 +243,7 @@ int CControls::SnapInput(int *pData)
 			m_aInputData[g_Config.m_ClDummy].m_Direction = 1;
 
 		m_pClient->m_SSClient.Update(&m_aInputData[g_Config.m_ClDummy], m_pClient->m_aLocalIds[g_Config.m_ClDummy], &m_pClient->m_DummyInput, m_pClient->m_aLocalIds[!g_Config.m_ClDummy]);
+		m_aInputData[!g_Config.m_ClDummy] = m_pClient->m_DummyInput;
 
 		// dummy copy moves
 		if(g_Config.m_ClDummyCopyMoves)

@@ -21,6 +21,7 @@ public:
 	//temporary
 	void CheckAndCrash();
 
+	void TempSave();
 	void Predict_Pos();
 	void Avoid_Freeze(CNetObj_PlayerInput *pInput, int LocalId);
 	void Fake_Aim(CNetObj_PlayerInput *pInput, int LocalId);
@@ -41,13 +42,15 @@ public:
 	void ShowLaserPath(vec2 Pos, vec2 Target);
 	void ShowGrenadePath(vec2 Pos, vec2 Target);
 	void FixWeaponTP(CGameWorld &baseWorld);
-	void ChatDraw(float x, float y, std::string Name, std::string Text);
+	void ChatDraw(float x, float y, std::string Name, std::string Text, bool IsFriend, bool ShouldHighlight);
 	void SaveTas(const std::string &Filename);
 	void LoadTas(const std::string &Filename);
 	bool BounceCheck(const vec2 &src, const vec2 &dst, int maxBounces);
 	int SimulateWithBacktracking(CCharacterCore Predict, CNetObj_PlayerInput input, int depth);
 	int SimulateInput(CCharacterCore Predict, CNetObj_PlayerInput input_to_use, int ticks, bool *alive);
 	int CountSafeTicks(CGameWorld *world, CCharacter *cc, CNetObj_PlayerInput &input, int horizon);
+
+	static void TempSaveC(IConfigManager *pConfig, void *pUserData);
 
 	int GetVersion() { return CURR_VER; };
 	float GetTextSize(const char* pText, float FontSize = 10.0f);
@@ -58,6 +61,7 @@ public:
 
 	virtual int Sizeof() const override { return sizeof(*this); }
 	virtual void OnRender() override;
+	virtual void OnConsoleInit() override;
 	// virtual void OnUpdate() override;
 private:
 	std::vector<vec2> m_PredictedPos;

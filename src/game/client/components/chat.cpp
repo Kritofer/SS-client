@@ -1262,7 +1262,7 @@ void CChat::OnRender()
 
 		if (g_Config.m_ClSSClientCustomChat)
 		{
-			m_pClient->m_SSClient.ChatDraw(x, y, Line.m_aName, Line.m_aText);
+			m_pClient->m_SSClient.ChatDraw(x, y, Line.m_aName, Line.m_aText, Line.m_Friend, Line.m_Highlighted);
 			continue;
 		}
 
