@@ -324,6 +324,8 @@ MACRO_CONFIG_INT(ClSSClientHidden, ssc_hidden, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG
 MACRO_CONFIG_INT(ClSSClientFakeVersion, ssc_fakeversion, 19000, 0, 99999, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Changes the client version to be the one defined (CAUTION!) [default = 19000]")
 MACRO_CONFIG_INT(ClSSClientZoomBypass, ssc_zoombypass, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Bypasses the camera zoom")
 MACRO_CONFIG_INT(ClSSClientCustomChat, ssc_customchat, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Custom Chat")
+MACRO_CONFIG_INT(ClSSClientTasTick, ssc_tas_ticks, 50, 0, 100, CFGFLAG_CLIENT, "Tas tick speed")
+MACRO_CONFIG_INT(ClSSClientTasSmooth, ssc_tas_smooth, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Smooth tas")
 MACRO_CONFIG_INT(ClSSClientAssetBypass, ssc_assetbypass, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Bypasses the asset [ FNG ONLY FOR NOW! ]")
 MACRO_CONFIG_INT(ClSSClientAimbotEnabled, ssc_aimbot_enabled, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Enable SSClient Aimbot")
 MACRO_CONFIG_INT(ClSSClientAimbotAlive, ssc_aimbot_alive, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Makes the aimbot only aim alive tees")

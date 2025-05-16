@@ -29,6 +29,7 @@ public:
     void Esp();
 	void StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj_PlayerInput *dInput, int DummyId);
 	void PlayRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj_PlayerInput *dInput, int DummyId);
+	void SmoothRecording(std::vector<CNetObj_PlayerInput>& Inputs);
 	void ZeroInput(CNetObj_PlayerInput *pInput);
 	void Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_PlayerInput *aInputdummy, int DummyId);
 	void ChangeMPos(vec2 NewMPos);
@@ -56,6 +57,7 @@ public:
 	float GetTextSize(const char* pText, float FontSize = 10.0f);
 
 	vec2 GetTasPos() { return OldTeePos; };
+	CCharacterCore::WeaponStat GetWeapon(int id) { return TasWeps[id]; };
 
 	CSSClient();
 
@@ -64,12 +66,22 @@ public:
 	virtual void OnConsoleInit() override;
 	// virtual void OnUpdate() override;
 private:
+	struct PredEntry 
+	{ 
+		const CAnimState *anim;
+		vec2 pos;
+		vec2 hpos;
+		bool frozen;
+		int hstate;
+		int id;
+	};
+
 	std::vector<vec2> m_PredictedPos;
 	std::vector<vec3> m_PredictedColor;
 
 	std::vector<vec2> m_TasPos;
-	std::deque<CNetObj_PlayerInput> m_RecordInputs;
-	std::deque<CNetObj_PlayerInput> m_RecordInputsD;
+	std::vector<CNetObj_PlayerInput> m_RecordInputs;
+	std::vector<CNetObj_PlayerInput> m_RecordInputsD;
 
 	int m_RecordIndex = 0;
 	int m_PredIndex = 0;
@@ -86,6 +98,8 @@ private:
 
 	std::vector<CLaser> Lasers;
 	std::vector<vec2> Projectiles_Pos;
+	std::vector<PredEntry> PlayersPred;
+	CCharacterCore::WeaponStat TasWeps[NUM_WEAPONS];
 
 	CCharacterCore PPredict;
 };

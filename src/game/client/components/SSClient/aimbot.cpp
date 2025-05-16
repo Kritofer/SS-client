@@ -155,7 +155,7 @@ bool CSSCAimbot::IsHookable(const vec2& from, const vec2& to)
         return false;
 
     // Use the Teeworlds collision system's hook check
-    return !Collision()->IntersectLine(from, to, nullptr, nullptr);
+    return !Collision()->IntersectLineTeleHook(from, to, nullptr, nullptr);
 }
 
 bool CSSCAimbot::AdvancedIsHookable(const vec2& from, const vec2& to, const float offset)

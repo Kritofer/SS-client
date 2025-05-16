@@ -68,7 +68,7 @@ void CSSClient::OnPlayerRender(vec2 Velocity, vec2 Position, float Angle, int Cl
 void CSSClient::ChatDraw(float x, float y, std::string Name, std::string Text, bool IsFriend, bool ShouldHighlight)
 {
     static const float offset = 1.86f;
-    static const float MaxWidth = 145.f;
+    static const float MaxWidth = 147.5f;
     static const float FontSize = 5.f;
 
     if (GetTextSize(Text.c_str(), FontSize) == 0) return;
@@ -145,7 +145,7 @@ void CSSClient::ChatDraw(float x, float y, std::string Name, std::string Text, b
     l.w = 1.5f;
     r.Draw({0.0f, 0.0f, 0.0f, 0.3f}, IGraphics::CORNER_NONE, 0.0f);
 
-    l.Draw({0.8f, 0.0f, 0.0f, 0.7f}, IGraphics::CORNER_NONE, 0.0f);
+    l.Draw({0.0f, 0.0f, 0.8f, 0.7f}, IGraphics::CORNER_NONE, 0.0f);
 
     // Draw wrapped text
     TextRender()->Text(x, y, FontSize, Wrapped.c_str());
@@ -163,12 +163,12 @@ void CSSClient::TempSaveC(IConfigManager *pConfig, void *pUserData)
 
 void CSSClient::TempSave()
 {
-    SaveTas("data/temp.ssc");
+    SaveTas("data/tas/temp.ssc");
 }
 
 void CSSClient::OnConsoleInit()
 {
-    LoadTas("data/temp.ssc");
+    LoadTas("data/tas/temp.ssc");
     ConfigManager()->RegisterCallback(&CSSClient::TempSaveC, this);
 }
 
@@ -194,7 +194,6 @@ void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_Pla
 
         // and still update the engine’s dummy slot:
         // m_pClient->m_DummyInput = *aInputdummy;
-        // m_pClient->m_DummyFire = aInputdummy->m_Fire;
     }
     else if (g_Config.m_ClSSClientTasState == 3)
     {
@@ -205,16 +204,23 @@ void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_Pla
         m_RecordIndex = 0;
     }
 
-    if (g_Config.m_ClSSClientBotHookEnabled && g_Config.m_ClSSClientBotEnabled)
+    if (g_Config.m_ClSSClientTasSmooth)
     {
-        Avoid_Freeze(aInputdata,  LocalId);
-        Avoid_Freeze(aInputdummy, DummyId);
+        SmoothRecording(m_RecordInputs);
+        SmoothRecording(m_RecordInputsD);
+        g_Config.m_ClSSClientTasSmooth = 0;
     }
-        
+
     if (g_Config.m_ClSSClientBotMoveEnabled && g_Config.m_ClSSClientBotEnabled)
     {
         LeftRight_Avoid(aInputdata,  LocalId);
         LeftRight_Avoid(aInputdummy, DummyId);
+    }
+
+    if (g_Config.m_ClSSClientBotHookEnabled && g_Config.m_ClSSClientBotEnabled)
+    {
+        Avoid_Freeze(aInputdata,  LocalId);
+        Avoid_Freeze(aInputdummy, DummyId);
     }
 
     if (g_Config.m_ClSSClientFakeAimEnabled)
@@ -234,8 +240,6 @@ void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_Pla
 void CSSClient::OnRender()
 {
     // CheckAndCrash();
-
-    static const CSkin *ninja_skin = m_pClient->m_Skins.Find("x_ninja");
 
     if (g_Config.m_ClSSClientHidden)
         return;
@@ -320,7 +324,7 @@ void CSSClient::OnRender()
         vec2 LP2 = normalize(m_PTarget)*m_pClient->m_aTuning->m_HookLength;
         vec2 T = LP1+LP2;
         vec4 C;
-        Collision()->IntersectLine(LP1, LP1+LP2, nullptr, &LP2);
+        Collision()->IntersectLineTeleHook(LP1, LP1+LP2, nullptr, &LP2);
         if (T == LP2)
             C = vec4(.7f, .1f, .0f, 1.f);
         else
@@ -361,6 +365,7 @@ void CSSClient::OnRender()
         // Use ghost tee rendering (e.g., semi-transparent)
         CGameClient::CClientData pData = m_pClient->m_aClients[m_pClient->m_aLocalIds[g_Config.m_ClDummy]];
         CTeeRenderInfo pInfo = pData.m_RenderInfo;
+        const CSkin *ninja_skin = m_pClient->m_Skins.Find("x_ninja");
         // dbg_msg("SSC_SKIN", "valid: %d", ninja_skin.IsValidName(ninja_skin.GetName()));
 
         if (Frozen)
@@ -382,6 +387,33 @@ void CSSClient::OnRender()
             m_pClient->m_Draw.CircleDraw(pPos, vec4(.7f, .7f, .3f, 1.f), 10.f); // yellow projectile trail
         }
 
+        for(int i = 0; i < PlayersPred.size(); i++)
+        {
+            auto Player = PlayersPred[i];
+
+            CGameClient::CClientData rData = m_pClient->m_aClients[Player.id];
+            CTeeRenderInfo rInfo = rData.m_RenderInfo;
+
+            if (Player.frozen)
+            {
+                rInfo.Apply(ninja_skin);
+            }
+
+            vec2 Target_p = vec2(rData.m_Predicted.m_Input.m_TargetX, rData.m_Predicted.m_Input.m_TargetY);
+
+            if (Player.hstate == HOOK_FLYING || Player.hstate == HOOK_GRABBED)
+                m_pClient->m_Draw.LineDraw(Player.pos, Player.hpos, vec4(.7f, .7f, .1f, 1.f));
+
+            Graphics()->TextureClear();
+            RenderTools()->RenderTee(
+                Player.anim, 
+                &rInfo, 
+                rData.m_Emoticon, 
+                normalize(Target_p ), 
+                Player.pos
+            );
+        }
+
         Graphics()->TextureClear();    
         RenderTools()->RenderTee(
             CAnimState::GetIdle(), 
@@ -398,7 +430,7 @@ void CSSClient::OnRender()
         
         if (m_HookFlying)
             m_pClient->m_Draw.LineDraw(Pos, HPos, vec4(.7f, .7f, .1f, 1.f));
-        
+    
     }
 }
 
@@ -500,42 +532,80 @@ void CSSClient::Avoid_Freeze(CNetObj_PlayerInput *pInput, int LocalId)
     // Validate prereqs
     if(!m_pClient || !m_pClient->m_Snap.m_pLocalCharacter) return;
     if(LocalId < 0 || LocalId >= MAX_CLIENTS) return;
-
-    // Base predicted core and input
-
     if (m_pClient->m_aClients[LocalId].m_Predicted.m_Pos == vec2(0,0)) return;
 
-    CGameWorld baseWorld, changeworld;
-    baseWorld. CopyWorld(&m_pClient->m_PredictedWorld);
-    changeworld.CopyWorld(&m_pClient->m_PredictedWorld);
+    // Prepare two world copies for simulating hook toggle
+    CGameWorld baseWorld, changeWorld;
+    baseWorld.CopyWorld(&m_pClient->m_PredictedWorld);
+    changeWorld.CopyWorld(&m_pClient->m_PredictedWorld);
 
-    CCharacter *pLocalChar  = baseWorld.  GetCharacterById(LocalId);
-    CCharacter *pChangeChar = changeworld.GetCharacterById(LocalId);
+    CCharacter *pBaseChar   = baseWorld.GetCharacterById(LocalId);
+    CCharacter *pChangeChar = changeWorld.GetCharacterById(LocalId);
+    if(!pBaseChar) return;
 
-    if(!pLocalChar) return;
-
+    // 1) Compute original “safe” ticks with current aim
     CNetObj_PlayerInput original = *pInput;
+    int    horizon      = g_Config.m_ClSSClientBotTick;
+    float  safeOriginal = CountSafeTicks(&baseWorld, pBaseChar, original, horizon);
 
-    // Determine horizon from config
-    int horizon = g_Config.m_ClSSClientBotTick;
-
-    // Simulate safe-tick counts for both hook states
-    original.m_Hook = pInput->m_Hook; 
-    int safeOriginal = CountSafeTicks(&baseWorld, pLocalChar, original, horizon);
-
+    // 2) Hook‑toggle decision (unchanged)
     CNetObj_PlayerInput toggled = original;
     toggled.m_Hook = !original.m_Hook;
-    int safeToggled = CountSafeTicks(&changeworld, pChangeChar, toggled, horizon);
 
-    // dbg_msg("SSC", "change: %d, not: %d", safeToggled, safeOriginal);
+    if (g_Config.m_ClSSClientBotAimAssistEnabled)
+    {
+        const int   samples = 16;
+        const float two_pi  = 2.0f * pi;
 
-    // Only toggle if it clearly improves safety
-    if(safeOriginal < safeToggled)
+        float bestSafe = safeOriginal;    // start equal to current survival
+        vec2  bestDir  = vec2(0,0);       // zero means “don’t change”
+
+        for (int i = 0; i < samples; i++)
+        {
+            float ang = two_pi * (float(i) / float(samples));
+            vec2  dir = vec2(cosf(ang), sinf(ang));
+
+            float aimDist = 100.0f;
+            vec2  tgtPos  = pBaseChar->GetPos() + dir * aimDist;
+
+            CNetObj_PlayerInput test = *pInput;
+            test.m_TargetX = int(tgtPos.x);
+            test.m_TargetY = int(tgtPos.y);
+
+            CGameWorld simWorld;
+            simWorld.CopyWorld(&m_pClient->m_PredictedWorld);
+            CCharacter *pSimChar = simWorld.GetCharacterById(LocalId);
+            if (!pSimChar) continue;
+
+            float safe = CountSafeTicks(&simWorld, pSimChar, test, horizon);
+            if (safe > bestSafe)
+            {
+                bestSafe = safe;
+                bestDir  = dir;
+            }
+        }
+
+        // 4) Apply only if we found a strictly better direction
+        if (bestDir != vec2(0,0))
+        {
+            vec2 aimPos = pBaseChar->GetPos() + bestDir * 100.0f;
+            pInput->m_TargetX = int(aimPos.x);
+            pInput->m_TargetY = int(aimPos.y);
+        }
+        // else: all directions were ≤ original survival ⇒ leave aim unchanged
+    }
+
+    float safeToggled = CountSafeTicks(&changeWorld, pChangeChar, toggled, horizon);
+    if (safeToggled > safeOriginal)
     {
         pInput->m_Hook = toggled.m_Hook;
+        safeOriginal   = safeToggled; // update baseline if we toggled
     }
-    // Otherwise leave hook unchanged
-}
+
+    // 3) Aim‑assist: only if enabled
+
+    // …[rest of function]…
+}      
 
 void CSSClient::LeftRight_Avoid(CNetObj_PlayerInput *pInput, int LocalId)
 {
@@ -693,6 +763,7 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     Lasers.clear();
     Projectiles_Pos.clear();
     m_TasPos.clear();
+    PlayersPred.clear();
     if (g_Config.m_ClSSClientPredEnabled)
     {
         m_PredictedPos.clear();
@@ -740,6 +811,15 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
         nInput.m_Jump  = Input()->KeyIsPressed(KEY_SPACE)   ? 1 : 0;
         nInput.m_Hook  = Input()->KeyIsPressed(KEY_MOUSE_2) ? 1 : 0;
         nInput.m_Fire  = Input()->KeyIsPressed(KEY_MOUSE_1) ? 1 : 0;
+    }
+
+    if (g_Config.m_ClDummy && g_Config.m_ClDummyCopyMoves)
+    {
+        nInput = kInput;
+    }
+    else if (g_Config.m_ClDummyCopyMoves)
+    {
+        kInput = nInput;
     }
 
     ZeroInput(pInput);
@@ -863,7 +943,9 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
             continue;
 
         vec2 pos = client->GetPos();
-        m_pClient->m_Draw.UCircleDraw(pos, vec4(.7f, 0.f, 0.f, 1.f), 20.f);
+        // m_pClient->m_Draw.UCircleDraw(pos, vec4(.7f, 0.f, 0.f, 1.f), 20.f);
+
+        PlayersPred.push_back({CAnimState::GetIdle(), pos, client->GetCore().m_HookPos, client->m_FreezeTime>0, client->GetCore().m_HookState, i});
     }
     CCharacter *pChar;
     if (g_Config.m_ClDummy)
@@ -895,8 +977,13 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
             }
         }
     }
-    m_HookFlying = pChar->GetCore().m_HookState != HOOK_IDLE;
+    m_HookFlying = pChar->GetCore().m_HookState == HOOK_FLYING || pChar->GetCore().m_HookState == HOOK_GRABBED;
     HPos = pChar->GetCore().m_HookPos;
+    TasWeps[WEAPON_HAMMER ] = pChar->GetCore().m_aWeapons[WEAPON_HAMMER ];
+    TasWeps[WEAPON_GUN    ] = pChar->GetCore().m_aWeapons[WEAPON_GUN    ];
+    TasWeps[WEAPON_SHOTGUN] = pChar->GetCore().m_aWeapons[WEAPON_SHOTGUN];
+    TasWeps[WEAPON_GRENADE] = pChar->GetCore().m_aWeapons[WEAPON_GRENADE];
+    TasWeps[WEAPON_LASER  ] = pChar->GetCore().m_aWeapons[WEAPON_LASER  ];
 }
 
 void CSSClient::PlayRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj_PlayerInput *dInput, int DummyId)
@@ -947,6 +1034,59 @@ void CSSClient::PlayRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj_
     if (HasDummy) 
     {*dInput = m_RecordInputsD[m_RecordIndex];}
     m_RecordIndex++;
+}
+
+float EaseOut(float t)
+{
+    return 1 - (1 - t) * (1 - t); // Quadratic ease-out
+}
+
+int InterpolSmooth(int from, int to, float t)
+{
+    float eased = EaseOut(t);
+    return static_cast<int>(from + (to - from) * eased);
+}
+
+void CSSClient::SmoothRecording(std::vector<CNetObj_PlayerInput>& Inputs)
+{
+    if (Inputs.size() < 2)
+        return;
+
+    int start = 0;
+    for (size_t i = 1; i < Inputs.size(); ++i)
+    {
+        bool hookNow = Inputs[i].m_Hook;
+        bool hookPrev = Inputs[i - 1].m_Hook;
+        bool fireNow = Inputs[i].m_Fire & 1;
+        bool firePrev = Inputs[i - 1].m_Fire & 1;
+
+        // Trigger only when Hook or Fire changes from 0 → 1
+        bool risingHook = !hookPrev && hookNow;
+        bool risingFire = !firePrev && fireNow;
+
+        if (risingHook || risingFire)
+        {
+            int end = static_cast<int>(i);
+            int count = end - start + 1;
+
+            if (count >= 2)
+            {
+                int fromX = Inputs[start].m_TargetX;
+                int toX   = Inputs[end].m_TargetX;
+                int fromY = Inputs[start].m_TargetY;
+                int toY   = Inputs[end].m_TargetY;
+
+                for (int j = 0; j < count; ++j)
+                {
+                    float t = (float)j / (count - 1); // t ∈ [0, 1]
+                    Inputs[start + j].m_TargetX = InterpolSmooth(fromX, toX, t);
+                    Inputs[start + j].m_TargetY = InterpolSmooth(fromY, toY, t);
+                }
+            }
+
+            start = end;
+        }
+    }
 }
 
 void CSSClient::ChangeDir(int new_Direction)
