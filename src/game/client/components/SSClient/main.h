@@ -44,6 +44,7 @@ public:
 	void ShowGrenadePath(vec2 Pos, vec2 Target);
 	void FixWeaponTP(CGameWorld &baseWorld);
 	void ChatDraw(float x, float y, std::string Name, std::string Text, bool IsFriend, bool ShouldHighlight);
+	void Command(const char *pLine);
 	void SaveTas(const std::string &Filename);
 	void LoadTas(const std::string &Filename);
 	bool BounceCheck(const vec2 &src, const vec2 &dst, int maxBounces);
@@ -56,6 +57,7 @@ public:
 	int GetVersion() { return CURR_VER; };
 	float GetTextSize(const char* pText, float FontSize = 10.0f);
 
+	int GetHolding() { return Weapon; };
 	vec2 GetTasPos() { return OldTeePos; };
 	CCharacterCore::WeaponStat GetWeapon(int id) { return TasWeps[id]; };
 

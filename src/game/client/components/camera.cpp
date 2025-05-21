@@ -394,7 +394,7 @@ void CCamera::OnRender()
 	if(m_CameraSmoothing)
 		m_Center = m_CameraSmoothingCenter;
 
-	if (g_Config.m_ClSSClientTasState == 1)
+	if (g_Config.m_ClSSClientTasState == 1 && m_pClient->m_SSClient.GetTasPos() != vec2(0,0))
 		m_Center = m_pClient->m_SSClient.GetTasPos();
 
 	m_PrevCenter = m_Center;

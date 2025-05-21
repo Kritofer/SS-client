@@ -530,6 +530,16 @@ int CGameClient::OnSnapInput(int *pData, bool Dummy, bool Force)
 		return 0;
 	}
 
+	if (g_Config.m_ClSSClientTasState == 1)
+	{
+		m_PredictedChar.m_aWeapons[WEAPON_HAMMER] = m_SSClient.GetWeapon(WEAPON_HAMMER);
+		m_PredictedChar.m_aWeapons[WEAPON_GUN] = m_SSClient.GetWeapon(WEAPON_GUN);
+		m_PredictedChar.m_aWeapons[WEAPON_SHOTGUN] = m_SSClient.GetWeapon(WEAPON_SHOTGUN);
+		m_PredictedChar.m_aWeapons[WEAPON_GRENADE] = m_SSClient.GetWeapon(WEAPON_GRENADE);
+		m_PredictedChar.m_aWeapons[WEAPON_LASER] = m_SSClient.GetWeapon(WEAPON_LASER);
+		m_PredictedChar.m_aWeapons[WEAPON_NINJA] = m_SSClient.GetWeapon(WEAPON_NINJA);
+	}
+
 	if(!g_Config.m_ClDummyHammer)
 	{
 		if(m_DummyFire != 0)

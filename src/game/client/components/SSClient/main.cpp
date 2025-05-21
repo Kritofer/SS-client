@@ -53,6 +53,18 @@ float CSSClient::GetTextSize(const char* pText, float FontSize)
     return TextRender()->TextWidth(FontSize, pText, -1, -1.0f);
 }
 
+void CSSClient::Command(const char *pLine)
+{
+    if (str_startswith(pLine, "+say "))
+    {
+        const char *pMsg = pLine + 5; // Skip "+say "
+        std::string formattedMsg;
+        formattedMsg += '\xff';       // Prepend raw 0xFF byte
+        formattedMsg += pMsg;         // Append the message
+        m_pClient->m_Chat.SendChat(0, formattedMsg.c_str());
+    }
+}
+
 void CSSClient::OnPlayerRender(vec2 Velocity, vec2 Position, float Angle, int ClientId)
 {
     if ((ClientId == m_pClient->m_Snap.m_LocalClientId && g_Config.m_ClSSClientShowColl == 1) || g_Config.m_ClSSClientShowColl == 0)
@@ -268,7 +280,8 @@ void CSSClient::OnRender()
 
     vec2 m_Target = Camera.m_Center + vec2(m_pClient->m_Controls.m_aInputData[g_Config.m_ClDummy].m_TargetX, m_pClient->m_Controls.m_aInputData[g_Config.m_ClDummy].m_TargetY);
 
-    ColorRGBA ori = TextRender()->GetTextColor();
+    static ColorRGBA ori; 
+    ori = TextRender()->GetTextColor();
     TextRender()->TextColor(0, 0.75f, 0.35f, 1);
 
     // Draw activated cheats
@@ -283,7 +296,7 @@ void CSSClient::OnRender()
     }
 
     TextRender()->TextColor(ori);
-    ori = NULL;
+    // ori = NULL;
 
     if (g_Config.m_ClSSClientEspEnabled)
         Esp();
@@ -322,15 +335,18 @@ void CSSClient::OnRender()
         vec2 POSS = Bor(TeePos, m_Pos, g_Config.m_ClSSClientTasState == 1);
         vec2 LP1 = POSS;
         vec2 LP2 = normalize(m_PTarget)*m_pClient->m_aTuning->m_HookLength;
-        vec2 T = LP1+LP2;
+        vec2 T = POSS+LP2 * 0.89f;
+        LP1 = POSS + LP2 * 0.11f;
+
+        // dbg_msg("SSC", "LP1 x: %f, y: %f", scalarX, scalarY);
         vec4 C;
-        Collision()->IntersectLineTeleHook(LP1, LP1+LP2, nullptr, &LP2);
+        Collision()->IntersectLineTeleHook(LP1, T, nullptr, &LP2);
         if (T == LP2)
             C = vec4(.7f, .1f, .0f, 1.f);
         else
             C = vec4(.1f, .7f, .0f, 1.f);
 
-        m_pClient->m_Draw.LineDraw(LP1, LP2, C);
+        m_pClient->m_Draw.LineDraw(POSS, LP2, C);
     }
 
     m_pClient->m_Draw.CircleDraw(m_Target,                    vec4(.0f, .5f, 1.f, .2f), 20.0f);
@@ -338,7 +354,7 @@ void CSSClient::OnRender()
 
     for (size_t i = 1; i < m_PredictedPos.size(); i++)
     {
-        vec2 Prev = m_PredictedPos[i - 1];
+        // vec2 Prev = m_PredictedPos[i - 1];
         vec2 Curr = m_PredictedPos[i];
         vec3 Color = m_PredictedColor[i];
         m_pClient->m_Draw.CircleDraw(Curr, vec4(Color.r, Color.g, Color.b, 0.8f), 3.f);// m_pClient->m_Draw.LineDraw(Prev, Curr, vec4(Color.r, Color.g, Color.b, 0.8f));
@@ -387,7 +403,96 @@ void CSSClient::OnRender()
             m_pClient->m_Draw.CircleDraw(pPos, vec4(.7f, .7f, .3f, 1.f), 10.f); // yellow projectile trail
         }
 
-        for(int i = 0; i < PlayersPred.size(); i++)
+        // 1) Convert screen‐space m_PTarget into a world‐space aim point
+        vec2 worldTarget = Camera.m_Center + m_PTarget;
+    
+        // 2) Compute the direction from your tee to that world target
+        vec2 delta = worldTarget - TeePos;    
+        // avoid zero‐length
+        vec2 dir   = normalize(delta);
+        float angle = atan2(dir.y, dir.x);
+    
+        // 3) Bind the weapons atlas and pick the gun sprite
+        Graphics()->TextureSet(m_pClient->m_GameSkin.m_aSpriteWeapons[Weapon]);
+        // RenderTools()->SelectSprite(SPRITE_WEAPON_GUN_BODY);  // verify this ID
+    
+        // 4) Begin quad batch, set rotation & color
+        Graphics()->QuadsBegin();
+        Graphics()->SetColor(1, 1, 1, 1);
+        // 5) Optionally offset so the gun sits in the hand
+        vec2 TTeePos = GetTasPos();
+        
+        switch (Weapon)
+        {
+        case WEAPON_HAMMER:
+        {
+            Graphics()->QuadsSetRotation(angle-90);
+
+            float size   = 28.0f;  
+            if (dir.x <= 0)
+                size = -size;
+            float sizex  = abs(size*2);
+            vec2 offset  = TTeePos+dir * abs(size);
+            TTeePos = offset;
+
+            IGraphics::CQuadItem q(
+                TTeePos.x,
+                TTeePos.y,
+                sizex, size
+            );
+            Graphics()->QuadsDraw(&q, 1);
+            break;
+        }
+        case WEAPON_GUN:
+        {
+            Graphics()->QuadsSetRotation(angle);
+
+            float size   = 28.0f;  
+            if (dir.x <= 0)
+                size = -size;
+            float sizex  = abs(size*2);
+            vec2 offset  = TTeePos+dir * abs(size);
+            TTeePos = offset;
+
+            IGraphics::CQuadItem q(
+                TTeePos.x,
+                TTeePos.y,
+                sizex, size
+            );
+            Graphics()->QuadsDraw(&q, 1);
+            break;
+        }
+        case WEAPON_LASER:
+        {
+            Graphics()->QuadsSetRotation(angle);
+
+            float size   = 38.0f;  
+            if (dir.x <= 0)
+                size = -size;
+            float sizex  = abs(size*2);
+            vec2 offset  = TTeePos+dir * (abs(size)*0.8f);
+            TTeePos = offset;
+
+            IGraphics::CQuadItem q(
+                TTeePos.x,
+                TTeePos.y,
+                sizex, size
+            );
+            Graphics()->QuadsDraw(&q, 1);
+            break;
+        }
+
+        default:
+            break;
+        }
+
+        Graphics()->QuadsEnd();
+        
+            // 6) Reset rotation & color state
+        Graphics()->QuadsSetRotation(0.0f);
+        Graphics()->SetColor(1,1,1,1);
+        
+        for(size_t i = 0; i < PlayersPred.size(); i++)
         {
             auto Player = PlayersPred[i];
 
@@ -743,8 +848,8 @@ void CSSClient::Esp()
 vec2 Quantize(vec2 v)
 {
     return vec2(
-        static_cast<int>(v.x * 1000) / 1000.0f,
-        static_cast<int>(v.y * 1000) / 1000.0f
+        static_cast<int>(v.x * 32000) / 32000.0f,
+        static_cast<int>(v.y * 32000) / 32000.0f
     );
 }
 
@@ -833,6 +938,7 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
         if (!m_RecordInputs.empty()) m_RecordInputs.pop_back();
         if (!m_RecordInputsD.empty()) m_RecordInputsD.pop_back();
         g_Config.m_ClSSClientTasRewind = 0;
+        g_Config.m_ClSSClientTasPause = 1;
         // return;
     }
 
@@ -840,19 +946,33 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     // 5) Record this tick’s input when “step” is hit
     //    (you can just tap your bind to step frame‑by‑frame)
     // —————————————————————————————————————————————
-    if (g_Config.m_ClSSClientTasStep) //  || (m_pClient->m_GameWorld.m_GameTick % 20) == 0
+
+    int stepsPerSecond = g_Config.m_ClSSClientTasTick;
+    if (stepsPerSecond < 1)
+        stepsPerSecond = 1; // Prevent division by 0
+
+    int interval = 50 / stepsPerSecond; // Ticks between steps 
+
+    if (g_Config.m_ClSSClientTasStep || ((m_pClient->m_GameWorld.m_GameTick % interval == 0) && !g_Config.m_ClSSClientTasPause)) //  || (m_pClient->m_GameWorld.m_GameTick % 20) == 0
     {
         m_RecordInputs.push_back(nInput);
         m_RecordInputsD.push_back(kInput);
         g_Config.m_ClSSClientTasStep = 0;
     }
 
+    if (m_RecordInputs.empty())
+    {
+        TeePos    = (m_pClient->m_aClients[LocalId].m_Predicted.m_Pos);
+        OldTeePos = TeePos;
+        m_HookFlying = false;
+    }
+
     // —————————————————————————————————————————————
     // 6) Re‑simulate *all* recorded inputs from the current predicted state
     //    (so you always see exactly where your tee would land)
     // —————————————————————————————————————————————
-    m_PredIndex = m_RecordInputs.size();
-    CGameClient::CClientData &LocalPlayer = m_pClient->m_aClients[LocalId];
+    // m_PredIndex = m_RecordInputs.size();
+    // CGameClient::CClientData &LocalPlayer = m_pClient->m_aClients[LocalId];
     CGameWorld baseWorld, before;
     baseWorld.CopyWorld(&m_pClient->m_PredictedWorld);
 
@@ -865,10 +985,10 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     if(!pLocalDummy)
       hasdummy = false;
 
-    OldTeePos = mix(OldTeePos, TeePos, 0.5);
+    OldTeePos = mix(OldTeePos, TeePos, Bor(0.5f, 1.f/interval, g_Config.m_ClSSClientTasPause));
     vec2 o = OldTeePos;
 
-    for (int i = 0; i < m_RecordInputs.size(); i++)
+    for (std::size_t i = 0; i < m_RecordInputs.size(); i++)
     {
         CNetObj_PlayerInput pinp = m_RecordInputs[i];
         CNetObj_PlayerInput dinp = m_RecordInputsD[i];
@@ -984,6 +1104,7 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     TasWeps[WEAPON_SHOTGUN] = pChar->GetCore().m_aWeapons[WEAPON_SHOTGUN];
     TasWeps[WEAPON_GRENADE] = pChar->GetCore().m_aWeapons[WEAPON_GRENADE];
     TasWeps[WEAPON_LASER  ] = pChar->GetCore().m_aWeapons[WEAPON_LASER  ];
+    TasWeps[WEAPON_NINJA  ] = pChar->GetCore().m_aWeapons[WEAPON_NINJA  ];
 }
 
 void CSSClient::PlayRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj_PlayerInput *dInput, int DummyId)
@@ -1015,7 +1136,7 @@ void CSSClient::PlayRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj_
     // }
 
     // 3) If we've reached the end, stop playback and reset index
-    if (m_RecordIndex >= static_cast<int>(m_RecordInputs.size()))
+    if (static_cast<std::size_t>(m_RecordIndex) >= m_RecordInputs.size())
     {
         // Reset ONLY if explicitly stopped
         if (g_Config.m_ClSSClientTasState == 2)
@@ -1045,7 +1166,7 @@ int InterpolSmooth(int from, int to, float t)
 {
     float eased = EaseOut(t);
     return static_cast<int>(from + (to - from) * eased);
-}
+}   
 
 void CSSClient::SmoothRecording(std::vector<CNetObj_PlayerInput>& Inputs)
 {

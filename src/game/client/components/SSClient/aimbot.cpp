@@ -29,8 +29,6 @@ void CSSCAimbot::AimTo(CNetObj_PlayerInput *pInput, int LocalId, int id, bool si
         return;
 
     CCharacterCore *pLocalChar = &m_pClient->m_PredictedChar;
-    if(!pLocalChar)
-        return;
     vec2 currpos = pLocalChar->m_Pos;
 
     auto pEnt = m_pClient->m_aClients[id];
@@ -40,9 +38,12 @@ void CSSCAimbot::AimTo(CNetObj_PlayerInput *pInput, int LocalId, int id, bool si
     const float leadTime = 0.0f;
 
     // First try the center
+    const float HookReachScalar = 0.11f;
+    vec2 hookVec = normalize(baseTargetPos - currpos) * m_pClient->m_aTuning->m_HookLength;
+    vec2 off = currpos + hookVec * HookReachScalar;
     int angleDeg = BestAngle(currpos, baseTargetPos, targetvel, leadTime);
 
-    if((angleDeg < 0 || !IsHookable(currpos, baseTargetPos)) && AdvancedIsHookable(currpos, baseTargetPos))
+    if((angleDeg < 0 || !IsHookable(off, baseTargetPos)) && AdvancedIsHookable(currpos, baseTargetPos))
     {
         // Try around the hitbox
         vec2 offsets[] = {
@@ -56,7 +57,9 @@ void CSSCAimbot::AimTo(CNetObj_PlayerInput *pInput, int LocalId, int id, bool si
         for(const vec2& o : offsets)
         {
             vec2 altPos = baseTargetPos + o;
-            if(!IsHookable(currpos, altPos))
+            vec2 hookVec = normalize(altPos - currpos) * m_pClient->m_aTuning->m_HookLength;
+            vec2 off = currpos + hookVec * HookReachScalar;
+            if(!IsHookable(off, altPos))
                 continue;
 
             angleDeg = BestAngle(currpos, altPos, targetvel, leadTime);
@@ -160,8 +163,15 @@ bool CSSCAimbot::IsHookable(const vec2& from, const vec2& to)
 
 bool CSSCAimbot::AdvancedIsHookable(const vec2& from, const vec2& to, const float offset)
 {
-    if(IsHookable(from, to))
+    const float HookReachScalar = 0.11f;
+    vec2 hookVec = normalize(to - from) * m_pClient->m_aTuning->m_HookLength;
+    vec2 off = from + hookVec * HookReachScalar;
+
+    if(IsHookable(off, to))
+    {
+        m_pClient->m_Draw.UCircleDraw(off, {0.f, 1.f, 0.f, 1.f}, 2.5f); // Green if valid
         return true;
+    }
 
     vec2 offsets[] = {
         vec2( offset,  offset),
@@ -172,9 +182,13 @@ bool CSSCAimbot::AdvancedIsHookable(const vec2& from, const vec2& to, const floa
 
     for(const vec2& o : offsets)
     {
-        if(IsHookable(from, to + o))
+        if(IsHookable(off, to + o))
+        {
+            m_pClient->m_Draw.UCircleDraw(off, {1.f, 1.f, 0.f, 1.f}, 2.5f); // Yellow for offset match
             return true;
+        }
     }
 
+    m_pClient->m_Draw.UCircleDraw(off, {1.f, 0.f, 0.f, 1.f}, 2.5f); // Red if not hookable
     return false;
 }

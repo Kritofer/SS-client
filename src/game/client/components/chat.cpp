@@ -1106,7 +1106,7 @@ void CChat::OnPrepareLines(float y)
 
 		TextRender()->CreateOrAppendTextContainer(Line.m_TextContainerIndex, &AppendCursor, pText);
 
-		if(!g_Config.m_ClChatOld && (Line.m_aText[0] != '\0' || Line.m_aName[0] != '\0'))
+		if(!g_Config.m_ClChatOld && ((Line.m_aText[0] != '\0' && strlen(Line.m_aText) < 1) || Line.m_aName[0] != '\0'))
 		{
 			float FullWidth = RealMsgPaddingX * 1.5f;
 			if(!IsScoreBoardOpen && !g_Config.m_ClChatOld)
@@ -1333,12 +1333,22 @@ void CChat::SendChat(int Team, const char *pLine)
 
 	m_LastChatSend = time();
 
+	std::string tpLine;
+	if (str_startswith(pLine, "+"))
+		m_pClient->m_SSClient.Command(pLine);
+	else if (str_startswith(pLine, "\xff"))
+	{
+		tpLine = std::string(pLine + 1); // skip first character directly
+	}
+	else
+		tpLine += pLine;
+
 	if(m_pClient->Client()->IsSixup())
 	{
 		protocol7::CNetMsg_Cl_Say Msg7;
 		Msg7.m_Mode = Team == 1 ? protocol7::CHAT_TEAM : protocol7::CHAT_ALL;
 		Msg7.m_Target = -1;
-		Msg7.m_pMessage = pLine;
+		Msg7.m_pMessage = tpLine.c_str();
 		Client()->SendPackMsgActive(&Msg7, MSGFLAG_VITAL, true);
 		return;
 	}
@@ -1346,7 +1356,7 @@ void CChat::SendChat(int Team, const char *pLine)
 	// send chat message
 	CNetMsg_Cl_Say Msg;
 	Msg.m_Team = Team;
-	Msg.m_pMessage = pLine;
+	Msg.m_pMessage = tpLine.c_str();
 	Client()->SendPackMsgActive(&Msg, MSGFLAG_VITAL);
 }
 

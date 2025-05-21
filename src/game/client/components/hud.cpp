@@ -906,14 +906,18 @@ void CHud::RenderPlayerState(const int ClientId)
 		bool InitialOffsetAdded = false;
 		for(int Weapon = 0; Weapon < NUM_WEAPONS; ++Weapon)
 		{
-			if(!pCharacter->m_aWeapons[Weapon].m_Got)
+			if(!pCharacter->m_aWeapons[Weapon].m_Got && (!m_pClient->m_SSClient.GetWeapon(Weapon).m_Got || g_Config.m_ClSSClientTasState != 1))
 				continue;
 			if(!InitialOffsetAdded)
 			{
 				x += aWeaponInitialOffset[Weapon];
 				InitialOffsetAdded = true;
 			}
-			if(pPlayer->m_Weapon != Weapon)
+			if(pPlayer->m_Weapon != Weapon && g_Config.m_ClSSClientTasState != 1)
+				Graphics()->SetColor(1.0f, 1.0f, 1.0f, 0.4f);
+			else if (pPlayer->m_Weapon == Weapon && m_pClient->m_SSClient.GetHolding() != Weapon && g_Config.m_ClSSClientTasState == 1)
+				Graphics()->SetColor(1.0f, 1.0f, 1.0f, 0.7f);
+			else if (m_pClient->m_SSClient.GetHolding() != Weapon && g_Config.m_ClSSClientTasState == 1)
 				Graphics()->SetColor(1.0f, 1.0f, 1.0f, 0.4f);
 			Graphics()->QuadsSetRotation(pi * 7 / 4);
 			Graphics()->TextureSet(m_pClient->m_GameSkin.m_aSpritePickupWeapons[Weapon]);
@@ -922,7 +926,7 @@ void CHud::RenderPlayerState(const int ClientId)
 			Graphics()->SetColor(1.0f, 1.0f, 1.0f, 1.0f);
 			x += aWeaponWidth[Weapon];
 		}
-		if(pCharacter->m_aWeapons[WEAPON_NINJA].m_Got)
+		if(pCharacter->m_aWeapons[WEAPON_NINJA].m_Got || (!m_pClient->m_SSClient.GetWeapon(WEAPON_NINJA).m_Got && g_Config.m_ClSSClientTasState == 1))
 		{
 			const int Max = g_pData->m_Weapons.m_Ninja.m_Duration * Client()->GameTickSpeed() / 1000;
 			float NinjaProgress = clamp(pCharacter->m_Ninja.m_ActivationTick + g_pData->m_Weapons.m_Ninja.m_Duration * Client()->GameTickSpeed() / 1000 - Client()->GameTick(g_Config.m_ClDummy), 0, Max) / (float)Max;
