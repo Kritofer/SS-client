@@ -15,6 +15,21 @@ class CPlayers : public CComponent
 	void RenderHand7(const CTeeRenderInfo *pInfo, vec2 CenterPos, vec2 Dir, float AngleOffset, vec2 PostRotOffset, float Alpha = 1.0f);
 
 	void RenderHand(const CTeeRenderInfo *pInfo, vec2 CenterPos, vec2 Dir, float AngleOffset, vec2 PostRotOffset, float Alpha = 1.0f);
+
+	bool IsPlayerInfoAvailable(int ClientId) const;
+
+	int m_WeaponEmoteQuadContainerIndex;
+	int m_aWeaponSpriteMuzzleQuadContainerIndex[NUM_WEAPONS];
+
+	int64_t m_SkidSoundTime = 0;
+
+public:
+	float GetPlayerTargetAngle(
+		const CNetObj_Character *pPrevChar,
+		const CNetObj_Character *pPlayerChar,
+		int ClientId,
+		float Intra = 0.0f);
+
 	void RenderPlayer(
 		const CNetObj_Character *pPrevChar,
 		const CNetObj_Character *pPlayerChar,
@@ -32,19 +47,6 @@ class CPlayers : public CComponent
 		const CNetObj_Character *pPlayerChar,
 		int ClientId,
 		float Intra = 0.f);
-	bool IsPlayerInfoAvailable(int ClientId) const;
-
-	int m_WeaponEmoteQuadContainerIndex;
-	int m_aWeaponSpriteMuzzleQuadContainerIndex[NUM_WEAPONS];
-
-	int64_t m_SkidSoundTime = 0;
-
-public:
-	float GetPlayerTargetAngle(
-		const CNetObj_Character *pPrevChar,
-		const CNetObj_Character *pPlayerChar,
-		int ClientId,
-		float Intra = 0.0f);
 
 	virtual int Sizeof() const override { return sizeof(*this); }
 	virtual void OnInit() override;

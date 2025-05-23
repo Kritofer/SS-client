@@ -90,6 +90,7 @@ private:
 	int CURR_VER = 1;
 	bool m_ResetPlayerInput = true;
 	bool m_HookFlying = false;
+	bool m_Dead = false;
 
 	vec2 TeePos;
 	vec2 HPos;
@@ -97,6 +98,9 @@ private:
 	int Frozen;
 	int Weapon;
 	int Id;
+
+	CNetObj_Character TasPrev;
+	CNetObj_Character TasCore;
 
 	std::vector<CLaser> Lasers;
 	std::vector<vec2> Projectiles_Pos;

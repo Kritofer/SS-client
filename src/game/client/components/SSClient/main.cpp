@@ -387,7 +387,10 @@ void CSSClient::OnRender()
         if (Frozen)
         {
             pInfo.Apply(ninja_skin);
+            pInfo.m_ColorBody = {1, 1, 1, 1};
+            pInfo.m_ColorFeet = {1, 1, 1, 1};
         }
+        // pInfo.m_ColorBody = {1, 1, 1, 0.2f};
         
         for(auto pLaser : Lasers)
         {
@@ -402,95 +405,6 @@ void CSSClient::OnRender()
         {
             m_pClient->m_Draw.CircleDraw(pPos, vec4(.7f, .7f, .3f, 1.f), 10.f); // yellow projectile trail
         }
-
-        // 1) Convert screen‐space m_PTarget into a world‐space aim point
-        vec2 worldTarget = Camera.m_Center + m_PTarget;
-    
-        // 2) Compute the direction from your tee to that world target
-        vec2 delta = worldTarget - TeePos;    
-        // avoid zero‐length
-        vec2 dir   = normalize(delta);
-        float angle = atan2(dir.y, dir.x);
-    
-        // 3) Bind the weapons atlas and pick the gun sprite
-        Graphics()->TextureSet(m_pClient->m_GameSkin.m_aSpriteWeapons[Weapon]);
-        // RenderTools()->SelectSprite(SPRITE_WEAPON_GUN_BODY);  // verify this ID
-    
-        // 4) Begin quad batch, set rotation & color
-        Graphics()->QuadsBegin();
-        Graphics()->SetColor(1, 1, 1, 1);
-        // 5) Optionally offset so the gun sits in the hand
-        vec2 TTeePos = GetTasPos();
-        
-        switch (Weapon)
-        {
-        case WEAPON_HAMMER:
-        {
-            Graphics()->QuadsSetRotation(angle-90);
-
-            float size   = 28.0f;  
-            if (dir.x <= 0)
-                size = -size;
-            float sizex  = abs(size*2);
-            vec2 offset  = TTeePos+dir * abs(size);
-            TTeePos = offset;
-
-            IGraphics::CQuadItem q(
-                TTeePos.x,
-                TTeePos.y,
-                sizex, size
-            );
-            Graphics()->QuadsDraw(&q, 1);
-            break;
-        }
-        case WEAPON_GUN:
-        {
-            Graphics()->QuadsSetRotation(angle);
-
-            float size   = 28.0f;  
-            if (dir.x <= 0)
-                size = -size;
-            float sizex  = abs(size*2);
-            vec2 offset  = TTeePos+dir * abs(size);
-            TTeePos = offset;
-
-            IGraphics::CQuadItem q(
-                TTeePos.x,
-                TTeePos.y,
-                sizex, size
-            );
-            Graphics()->QuadsDraw(&q, 1);
-            break;
-        }
-        case WEAPON_LASER:
-        {
-            Graphics()->QuadsSetRotation(angle);
-
-            float size   = 38.0f;  
-            if (dir.x <= 0)
-                size = -size;
-            float sizex  = abs(size*2);
-            vec2 offset  = TTeePos+dir * (abs(size)*0.8f);
-            TTeePos = offset;
-
-            IGraphics::CQuadItem q(
-                TTeePos.x,
-                TTeePos.y,
-                sizex, size
-            );
-            Graphics()->QuadsDraw(&q, 1);
-            break;
-        }
-
-        default:
-            break;
-        }
-
-        Graphics()->QuadsEnd();
-        
-            // 6) Reset rotation & color state
-        Graphics()->QuadsSetRotation(0.0f);
-        Graphics()->SetColor(1,1,1,1);
         
         for(size_t i = 0; i < PlayersPred.size(); i++)
         {
@@ -502,6 +416,7 @@ void CSSClient::OnRender()
             if (Player.frozen)
             {
                 rInfo.Apply(ninja_skin);
+                rInfo.m_CustomColoredSkin = false;
             }
 
             vec2 Target_p = vec2(rData.m_Predicted.m_Input.m_TargetX, rData.m_Predicted.m_Input.m_TargetY);
@@ -519,22 +434,27 @@ void CSSClient::OnRender()
             );
         }
 
-        Graphics()->TextureClear();    
-        RenderTools()->RenderTee(
-            CAnimState::GetIdle(), 
-            &pInfo, 
-            pData.m_Emoticon, 
-            normalize(
-                vec2(
-                    m_pClient->m_Controls.m_aInputData[g_Config.m_ClDummy].m_TargetX, 
-                    m_pClient->m_Controls.m_aInputData[g_Config.m_ClDummy].m_TargetY
-                )
-            ), 
-            Pos
-        );
+        // Graphics()->TextureClear();    
+        // RenderTools()->RenderTee(
+        //     CAnimState::GetIdle(), 
+        //     &pInfo, 
+        //     pData.m_Emoticon, 
+        //     normalize(
+        //         vec2(
+        //             m_pClient->m_Controls.m_aInputData[g_Config.m_ClDummy].m_TargetX, 
+        //             m_pClient->m_Controls.m_aInputData[g_Config.m_ClDummy].m_TargetY
+        //         )
+        //     ), 
+        //     Pos
+        // );
+        if (m_Dead)
+        {
+            TextRender()->Text(0.f, 20.f, 20.f, "DEAD");
+        }
         
-        if (m_HookFlying)
-            m_pClient->m_Draw.LineDraw(Pos, HPos, vec4(.7f, .7f, .1f, 1.f));
+        // if (m_HookFlying)
+        m_pClient->m_Players.RenderPlayer(&TasPrev, &TasCore, &pInfo, -1, Client()->IntraGameTick(g_Config.m_ClDummy));
+        m_pClient->m_Players.RenderHook(&TasPrev, &TasCore, &pInfo, -1, Client()->IntraGameTick(g_Config.m_ClDummy));
     
     }
 }
@@ -933,13 +853,20 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     // —————————————————————————————————————————————                        
     // 4) Handle rewind safely (only pop if we actually recorded something)
     // —————————————————————————————————————————————
+    static bool rew = false;
     if (g_Config.m_ClSSClientTasRewind)
     {
         if (!m_RecordInputs.empty()) m_RecordInputs.pop_back();
         if (!m_RecordInputsD.empty()) m_RecordInputsD.pop_back();
-        g_Config.m_ClSSClientTasRewind = 0;
-        g_Config.m_ClSSClientTasPause = 1;
+        // g_Config.m_ClSSClientTasRewind = 0;
+        rew = true;
+        if (g_Config.m_ClSSClientTasPause)
+            g_Config.m_ClSSClientTasRewind = 0;
         // return;
+    }
+    else if (rew)
+    {
+        rew = false;
     }
 
     // —————————————————————————————————————————————
@@ -947,13 +874,13 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     //    (you can just tap your bind to step frame‑by‑frame)
     // —————————————————————————————————————————————
 
-    int stepsPerSecond = g_Config.m_ClSSClientTasTick;
-    if (stepsPerSecond < 1)
+    int stepsPerSecond = g_Config.m_ClSSClientTasTick/2;
+    if (stepsPerSecond <= 0)
         stepsPerSecond = 1; // Prevent division by 0
 
     int interval = 50 / stepsPerSecond; // Ticks between steps 
 
-    if (g_Config.m_ClSSClientTasStep || ((m_pClient->m_GameWorld.m_GameTick % interval == 0) && !g_Config.m_ClSSClientTasPause)) //  || (m_pClient->m_GameWorld.m_GameTick % 20) == 0
+    if (g_Config.m_ClSSClientTasStep || ((m_pClient->m_GameWorld.m_GameTick % interval == 0) && (!g_Config.m_ClSSClientTasPause && !rew))) //  || (m_pClient->m_GameWorld.m_GameTick % 20) == 0
     {
         m_RecordInputs.push_back(nInput);
         m_RecordInputsD.push_back(kInput);
@@ -962,8 +889,8 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
 
     if (m_RecordInputs.empty())
     {
-        TeePos    = (m_pClient->m_aClients[LocalId].m_Predicted.m_Pos);
-        OldTeePos = TeePos;
+        TeePos       = (m_pClient->m_aClients[LocalId].m_Predicted.m_Pos);
+        OldTeePos    = TeePos;
         m_HookFlying = false;
     }
 
@@ -1011,6 +938,7 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
 
         m_TasPos.push_back(TeePos);
     }
+
     if (g_Config.m_ClSSClientPredEnabled)
     {
         before.CopyWorld(&baseWorld);
@@ -1075,6 +1003,12 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
 
     Frozen = pChar->m_FreezeTime > 0;
     Weapon = pChar->GetActiveWeapon();
+
+    TasPrev = TasCore;
+    pChar->GetCore().Write(&TasCore);
+    TasCore.m_Weapon = Weapon;
+    m_Dead = pChar->GetCore().m_Reset;
+
     for(int Type : { CGameWorld::ENTTYPE_LASER, CGameWorld::ENTTYPE_PROJECTILE })
     {
         for(CEntity *pEnt = baseWorld.FindFirst(Type); pEnt; pEnt = pEnt->TypeNext())
