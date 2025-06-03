@@ -98,6 +98,7 @@ private:
 	int Frozen;
 	int Weapon;
 	int Id;
+	int m_Shoot;
 
 	CNetObj_Character TasPrev;
 	CNetObj_Character TasCore;

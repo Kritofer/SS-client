@@ -18,6 +18,7 @@
 #include <stack>
 #include <fstream>
 #include <sstream>
+#include <iomanip>
 
 #define VEC2_TRANSFORM(v, min, max) \
     vec2( \
@@ -36,6 +37,8 @@
 
 #define Bor(true, false, reason) \
     (reason) ? true : false
+
+#define DEBUG_FS 10.f
 
 // Or, more generally (using pointer-to-member):
 template<typename U, typename V, typename M>
@@ -243,10 +246,18 @@ void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_Pla
 
     if (g_Config.m_ClSSClientAimbotEnabled)
         if (aInputdata->m_Hook || (aInputdata->m_Fire & 1))
-            m_pClient->m_SSCAimbot.AutoAimTo(aInputdata, LocalId, g_Config.m_ClSSClientAimbotFov, m_pClient->m_GameWorld.m_WorldConfig.m_IsFNG);
+            m_pClient->m_SSCAimbot.AutoAimTo(aInputdata, LocalId, g_Config.m_ClSSClientAimbotFov/2.f, m_pClient->m_GameWorld.m_WorldConfig.m_IsFNG);
 
     // TODO: make this actually work
     // LaserUnfreeze(aInputdata, LocalId);
+}
+
+std::string FormatVec2(const vec2& v)
+{
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(2);
+    ss << v.x << ", " << v.y;
+    return ss.str();
 }
 
 void CSSClient::OnRender()
@@ -262,7 +273,10 @@ void CSSClient::OnRender()
         return;
 
     PPredict = m_pClient->m_aClients[Id].m_Predicted;
+    
     std::vector<std::string> enabledOptions;
+    std::vector<std::string> debug_info;
+
     if(g_Config.m_ClSSClientEspEnabled) enabledOptions.push_back("ESP");
     if(g_Config.m_ClSSClientPredEnabled) enabledOptions.push_back("Predict");
     if(g_Config.m_ClSSClientAimbotEnabled) enabledOptions.push_back("Aimbot");
@@ -270,6 +284,27 @@ void CSSClient::OnRender()
     if(g_Config.m_ClSSClientBotHookEnabled && g_Config.m_ClSSClientBotEnabled) enabledOptions.push_back("BotHook");
     if(g_Config.m_ClSSClientTasState != 0 && g_Config.m_ClSSClientTasState != 3) enabledOptions.push_back("TAS");
     if(g_Config.m_ClSSClientFakeAimEnabled) enabledOptions.push_back("FakeAim");
+
+    {
+        vec2 position = Bor(TeePos, PPredict.m_Pos, g_Config.m_ClSSClientTasState == 1);
+        vec2 velocity = Bor(vec2(TasCore.m_VelX, TasCore.m_VelY), PPredict.m_Vel, g_Config.m_ClSSClientTasState == 1);
+        position /= 32.f;
+        if (g_Config.m_ClSSClientTasState == 1) velocity /= 256.f;
+        std::string pos = FormatVec2(position);
+        std::string vel = FormatVec2(velocity);
+        debug_info.push_back("POS: "+pos);
+        debug_info.push_back("VEL: "+vel);
+    }
+
+    {
+        int Ping = m_pClient->m_Snap.m_pLocalInfo->m_Latency;
+        int WPing = m_pClient->m_PredictedWorld.m_GameTick - m_pClient->m_GameWorld.m_GameTick ;
+
+        std::string ping = std::to_string(Ping);
+        std::string wping = std::to_string(WPing);
+        debug_info.push_back("PING: "+ping);
+        debug_info.push_back("WPING: "+wping);
+    }
 
     SORT(enabledOptions.begin(), enabledOptions.end(), [this](const std::string& a, const std::string& b) {
         return GetTextSize(a.c_str()) > GetTextSize(b.c_str());
@@ -331,23 +366,23 @@ void CSSClient::OnRender()
             ShowGrenadePath(m_Pos, m_PTarget);
     }
 
-    {
-        vec2 POSS = Bor(TeePos, m_Pos, g_Config.m_ClSSClientTasState == 1);
-        vec2 LP1 = POSS;
-        vec2 LP2 = normalize(m_PTarget)*m_pClient->m_aTuning->m_HookLength;
-        vec2 T = POSS+LP2 * 0.89f;
-        LP1 = POSS + LP2 * 0.11f;
+    // {
+    //     vec2 POSS = Bor(TeePos, m_Pos, g_Config.m_ClSSClientTasState == 1);
+    //     vec2 LP1 = POSS;
+    //     vec2 LP2 = normalize(m_PTarget)*m_pClient->m_aTuning->m_HookLength;
+    //     vec2 T = POSS+LP2 * 0.89f;
+    //     LP1 = POSS + LP2 * 0.11f;
 
-        // dbg_msg("SSC", "LP1 x: %f, y: %f", scalarX, scalarY);
-        vec4 C;
-        Collision()->IntersectLineTeleHook(LP1, T, nullptr, &LP2);
-        if (T == LP2)
-            C = vec4(.7f, .1f, .0f, 1.f);
-        else
-            C = vec4(.1f, .7f, .0f, 1.f);
-
-        m_pClient->m_Draw.LineDraw(POSS, LP2, C);
-    }
+    //     // dbg_msg("SSC", "LP1 x: %f, y: %f", scalarX, scalarY);
+    //     vec4 C;
+    //     Collision()->IntersectLineTeleHook(LP1, T, nullptr, &LP2);
+    //     if (T == LP2)
+    //         C = vec4(.7f, .1f, .0f, 1.f);
+    //     else
+    //         C = vec4(.1f, .7f, .0f, 1.f);
+ 
+    //     m_pClient->m_Draw.LineDraw(POSS, LP2, C);
+    // }
 
     m_pClient->m_Draw.CircleDraw(m_Target,                    vec4(.0f, .5f, 1.f, .2f), 20.0f);
     m_pClient->m_Draw.CircleDraw(m_DTarget + Camera.m_Center, vec4(1.f, .5f, .0f, .15f), 20.0f);
@@ -447,15 +482,49 @@ void CSSClient::OnRender()
         //     ), 
         //     Pos
         // );
-        if (m_Dead)
+        // if (m_Dead)
+        // {
+        //     debug_info.push_back("TAS DEAD");
+        // }
+        if (m_RecordInputs.size() > 0)
         {
-            TextRender()->Text(0.f, 20.f, 20.f, "DEAD");
+            std::string text = "SIZE: " + std::to_string(m_RecordInputs.size());
+            debug_info.push_back(text);
         }
         
         // if (m_HookFlying)
         m_pClient->m_Players.RenderPlayer(&TasPrev, &TasCore, &pInfo, -1, Client()->IntraGameTick(g_Config.m_ClDummy));
         m_pClient->m_Players.RenderHook(&TasPrev, &TasCore, &pInfo, -1, Client()->IntraGameTick(g_Config.m_ClDummy));
-    
+        m_pClient->m_Players.RenderHookCollLine(&TasPrev, &TasCore, -1, Client()->IntraGameTick(g_Config.m_ClDummy));
+
+        if (m_Shoot)
+        {
+            float fireDelaySeconds = m_pClient->m_aTuning->GetWeaponFireDelay(Weapon);  
+        
+            // Convert seconds to ticks (rounded to nearest int)
+            int fireDelayTicks = static_cast<int>(fireDelaySeconds * SERVER_TICK_SPEED + 0.5f);
+        
+            int remaining = fireDelayTicks - m_Shoot;
+        
+            if (remaining > 0)
+            {
+                debug_info.push_back("RECHARGE: " + std::to_string(remaining) + " ticks");
+            }
+        }
+    }
+    if (g_Config.m_ClSSClientDebugEnabled)
+    {
+        // SORT(debug_info.begin(), debug_info.end(), [this](const std::string& a, const std::string& b) {
+        //     return GetTextSize(a.c_str(), DEBUG_FS) > GetTextSize(b.c_str(), DEBUG_FS);
+        // });   
+
+        float offsety = (debug_info.size() * -(DEBUG_FS + 2.f)) / 2.f;
+        const float offsetx = 30.f;
+        for (const auto& text : debug_info)
+        {
+            TextRender()->Text(Camera.m_Center.x+offsetx, Camera.m_Center.y+offsety, DEBUG_FS, text.c_str(), -1.0f);
+            offsety += DEBUG_FS + 2.f; // Increment Y so lines don't overlap
+        }
     }
 }
 
@@ -902,6 +971,10 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     // CGameClient::CClientData &LocalPlayer = m_pClient->m_aClients[LocalId];
     CGameWorld baseWorld, before;
     baseWorld.CopyWorld(&m_pClient->m_PredictedWorld);
+    baseWorld.m_WorldConfig.m_PredictTiles = true;
+    baseWorld.m_WorldConfig.m_PredictFreeze = true;
+    baseWorld.m_WorldConfig.m_PredictDDRace = true;
+    baseWorld.m_WorldConfig.m_PredictWeapons = true;
 
     CCharacter *pLocalChar = baseWorld.GetCharacterById(LocalId);
     if(!pLocalChar)
@@ -1007,7 +1080,7 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     TasPrev = TasCore;
     pChar->GetCore().Write(&TasCore);
     TasCore.m_Weapon = Weapon;
-    m_Dead = pChar->GetCore().m_Reset;
+    m_Shoot = baseWorld.m_GameTick - pChar->GetAttackTick();
 
     for(int Type : { CGameWorld::ENTTYPE_LASER, CGameWorld::ENTTYPE_PROJECTILE })
     {

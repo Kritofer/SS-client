@@ -1,12 +1,15 @@
 #include "aimbot.h"
 #include <game/client/gameclient.h>
+#include <game/client/prediction/entity.h>
+#include <game/client/prediction/gameworld.h>
+#include <game/client/gameclient.h>
 
-int CSSCAimbot::BestAngle(vec2 currpos, vec2 targetpos, vec2 targetvel, const float leadTime)
+int CSSCAimbot::BestAngle(vec2 currpos, vec2 targetpos)
 {
     // Predict target's future position
     vec2 predicted;
-    predicted.x = targetpos.x + targetvel.x * leadTime;
-    predicted.y = targetpos.y + targetvel.y * leadTime;
+    predicted.x = targetpos.x;
+    predicted.y = targetpos.y;
 
     // Calculate delta
     float dx = predicted.x - currpos.x;
@@ -31,19 +34,36 @@ void CSSCAimbot::AimTo(CNetObj_PlayerInput *pInput, int LocalId, int id, bool si
     CCharacterCore *pLocalChar = &m_pClient->m_PredictedChar;
     vec2 currpos = pLocalChar->m_Pos;
 
-    auto pEnt = m_pClient->m_aClients[id];
-    vec2 baseTargetPos = pEnt.m_Predicted.m_Pos;
-    vec2 targetvel = vec2(pEnt.m_RenderCur.m_VelX, pEnt.m_RenderCur.m_VelY);
+    CGameWorld pWorld;
+    pWorld.CopyWorld(&m_pClient->m_GameWorld);
+    pWorld.m_WorldConfig.m_PredictWeapons = true;
+    pWorld.m_WorldConfig.m_PredictFreeze = true;
+    pWorld.m_WorldConfig.m_PredictTiles = true;
 
-    const float leadTime = 0.0f;
+    int HookLength = m_pClient->GetTuning(g_Config.m_ClDummy)->m_HookLength;
+    int HookSpeed = m_pClient->GetTuning(g_Config.m_ClDummy)->m_HookFireSpeed;
+    int Ping = m_pClient->m_Snap.m_pLocalInfo->m_Latency;
+
+    int HookTicks = 1;
+    if(m_pClient->m_PredictedChar.m_ActiveWeapon == WEAPON_LASER && m_pClient->m_PredictedChar.m_Input.m_Fire)
+        HookTicks = 0;
+    
+    for (; pWorld.m_GameTick <= (m_pClient->m_PredictedWorld.m_GameTick + HookTicks ); pWorld.m_GameTick++) { pWorld.Tick(); }
+
+    auto pEnt = pWorld.GetCharacterById(id);
+    if (!pEnt)
+        return;
+    vec2 baseTargetPos = pEnt->GetCore().m_Pos;
+
+    const float leadTime = 0.f;
 
     // First try the center
     const float HookReachScalar = 0.11f;
     vec2 hookVec = normalize(baseTargetPos - currpos) * m_pClient->m_aTuning->m_HookLength;
     vec2 off = currpos + hookVec * HookReachScalar;
-    int angleDeg = BestAngle(currpos, baseTargetPos, targetvel, leadTime);
+    int angleDeg = BestAngle(currpos, baseTargetPos);
 
-    if((angleDeg < 0 || !IsHookable(off, baseTargetPos)) && AdvancedIsHookable(currpos, baseTargetPos))
+    if(((angleDeg < 0 || !IsHookable(off, baseTargetPos)) || silent) && AdvancedIsHookable(currpos, baseTargetPos))
     {
         // Try around the hitbox
         vec2 offsets[] = {
@@ -62,7 +82,7 @@ void CSSCAimbot::AimTo(CNetObj_PlayerInput *pInput, int LocalId, int id, bool si
             if(!IsHookable(off, altPos))
                 continue;
 
-            angleDeg = BestAngle(currpos, altPos, targetvel, leadTime);
+            angleDeg = BestAngle(currpos, altPos);
             if(angleDeg >= 0)
             {
                 found = true;
@@ -78,8 +98,8 @@ void CSSCAimbot::AimTo(CNetObj_PlayerInput *pInput, int LocalId, int id, bool si
     {
         static float time = 0.0f;
         time += Client()->RenderFrameTime();
-        float wobbleAmplitude = 2.f;
-        float wobbleFrequency = 80.0f;
+        float wobbleAmplitude = 1.1f;
+        float wobbleFrequency = 500.0f;
         float wobbleOffset = sinf(time * 2.0f * (float)M_PI * wobbleFrequency) * wobbleAmplitude;
         angleDeg += (int)wobbleOffset;
     }
@@ -105,6 +125,10 @@ void CSSCAimbot::AutoAimTo(CNetObj_PlayerInput *pInput, int LocalId, float fovDe
     if(!pLocalChar)
         return;
 
+    const CGameClient::CClientData &pEnt = m_pClient->m_aClients[LocalId];
+    CGameWorld world;
+    world.CopyWorld(&m_pClient->m_GameWorld);
+
     vec2 currpos = pLocalChar->m_Pos;
     vec2 viewDir = normalize(vec2(pInput->m_TargetX, pInput->m_TargetY));
 
@@ -120,8 +144,10 @@ void CSSCAimbot::AutoAimTo(CNetObj_PlayerInput *pInput, int LocalId, float fovDe
            
         // Skip inactive client
         if(!ent.m_Active 
+            //|| ent.m_Afk
             || ent.m_Solo
             || pLocalChar->m_Solo
+            || ((ent.m_Team != pEnt.m_Team ) && world.m_WorldConfig.m_IsDDRace)
             //|| (ent.m_LiveFrozen && g_Config.m_ClSSClientAimbotAlive)
         )
             continue;
@@ -153,7 +179,11 @@ void CSSCAimbot::AutoAimTo(CNetObj_PlayerInput *pInput, int LocalId, float fovDe
 
 bool CSSCAimbot::IsHookable(const vec2& from, const vec2& to)
 {
-    float maxDistance = 800.0f;
+    float maxDistance = m_pClient->GetTuning(g_Config.m_ClDummy)->m_HookLength;
+    if(m_pClient->m_PredictedChar.m_ActiveWeapon == WEAPON_LASER && m_pClient->m_PredictedChar.m_Input.m_Fire)
+        maxDistance = m_pClient->GetTuning(g_Config.m_ClDummy)->m_LaserReach;
+    if(m_pClient->m_PredictedChar.m_ActiveWeapon == WEAPON_SHOTGUN && m_pClient->m_PredictedChar.m_Input.m_Fire)
+        maxDistance = m_pClient->GetTuning(g_Config.m_ClDummy)->m_LaserReach;
     if(distance(from, to) > maxDistance)
         return false;
 
