@@ -1027,8 +1027,11 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
         int tileY = round_to_int((g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->GetPos().y / 32);
         if (baseWorld.Collision()->GetFrontIndex(tileX, tileY) == TILE_START)
         {
-            // record the tick of the *last* start‐tile touch
             race = baseWorld.m_GameTick;
+        }
+        else if (baseWorld.Collision()->GetFrontIndex(tileX, tileY) == TILE_FINISH)
+        {
+            end = baseWorld.m_GameTick;
         }
 
         baseWorld.Tick();
@@ -1036,13 +1039,14 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
         m_TasPos.push_back(TeePos);
     }
 
-    end = baseWorld.m_GameTick;
+    if (end == 0)
+        end = baseWorld.m_GameTick;
 
     // Compute ticks since last touch
     if (race != -1)
         m_RTime = end - race;
     else
-        m_RTime = 0;   // or whatever makes sense if you never touched TILE_START
+        m_RTime = 0;
 
 
     if (g_Config.m_ClSSClientPredEnabled)
