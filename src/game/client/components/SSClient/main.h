@@ -99,6 +99,7 @@ private:
 	int Weapon;
 	int Id;
 	int m_Shoot;
+	int m_RTime;
 
 	CNetObj_Character TasPrev;
 	CNetObj_Character TasCore;

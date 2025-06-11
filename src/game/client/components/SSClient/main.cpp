@@ -511,6 +511,23 @@ void CSSClient::OnRender()
                 debug_info.push_back("RECHARGE: " + std::to_string(remaining) + " ticks");
             }
         }
+
+        if (m_RTime != 0)
+        {
+            // Suppose m_RTime is in server ticks; convert to total seconds first
+            int totalSeconds = m_RTime / SERVER_TICK_SPEED;
+        
+            // Compute minutes & seconds
+            int minutes = totalSeconds / 60;
+            int seconds = totalSeconds % 60;
+        
+            // Format “M:SS”, padding seconds if needed
+            std::string fmtTime = 
+                (minutes < 10 ? "0" : "") + std::to_string(minutes) + ":" + 
+                (seconds < 10 ? "0" : "") + std::to_string(seconds);
+        
+            debug_info.push_back("RACETIME: " + fmtTime);
+        }
     }
     if (g_Config.m_ClSSClientDebugEnabled)
     {
@@ -988,6 +1005,9 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     OldTeePos = mix(OldTeePos, TeePos, Bor(0.5f, 1.f/interval, g_Config.m_ClSSClientTasPause));
     vec2 o = OldTeePos;
 
+    int race = -1;                     // sentinel: no hit yet
+    int end  =  0;
+
     for (std::size_t i = 0; i < m_RecordInputs.size(); i++)
     {
         CNetObj_PlayerInput pinp = m_RecordInputs[i];
@@ -995,22 +1015,35 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
 
         pLocalChar->OnDirectInput(&pinp);
         if (hasdummy)
-        {pLocalDummy->OnDirectInput(&dinp);}
+            pLocalDummy->OnDirectInput(&dinp);
+
         baseWorld.m_GameTick++;
         pLocalChar->OnPredictedInput(&pinp);
         if (hasdummy)
-        {pLocalDummy->OnPredictedInput(&dinp);}
+            pLocalDummy->OnPredictedInput(&dinp);
 
-        // FixWeaponTP(baseWorld);
+        // Check current tile
+        int tileX = round_to_int((g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->GetPos().x / 32);
+        int tileY = round_to_int((g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->GetPos().y / 32);
+        if (baseWorld.Collision()->GetFrontIndex(tileX, tileY) == TILE_START)
+        {
+            // record the tick of the *last* start‐tile touch
+            race = baseWorld.m_GameTick;
+        }
 
         baseWorld.Tick();
-        if (g_Config.m_ClDummy)
-        TeePos = pLocalDummy->GetPos();
-        else
-        TeePos = pLocalChar->GetPos();
-
+        TeePos = (g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->GetPos();
         m_TasPos.push_back(TeePos);
     }
+
+    end = baseWorld.m_GameTick;
+
+    // Compute ticks since last touch
+    if (race != -1)
+        m_RTime = end - race;
+    else
+        m_RTime = 0;   // or whatever makes sense if you never touched TILE_START
+
 
     if (g_Config.m_ClSSClientPredEnabled)
     {
