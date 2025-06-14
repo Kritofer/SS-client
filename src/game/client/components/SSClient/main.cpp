@@ -516,17 +516,19 @@ void CSSClient::OnRender()
         {
             // Suppose m_RTime is in server ticks; convert to total seconds first
             int totalSeconds = m_RTime / SERVER_TICK_SPEED;
+            int totalms      = static_cast<int>((1000.0 * m_RTime) / SERVER_TICK_SPEED);
         
             // Compute minutes & seconds
             int minutes = totalSeconds / 60;
             int seconds = totalSeconds % 60;
+            int milliseconds = totalms % 1000;
+            int ms = round_to_int(milliseconds/10);
         
-            // Format “M:SS”, padding seconds if needed
-            std::string fmtTime = 
-                (minutes < 10 ? "0" : "") + std::to_string(minutes) + ":" + 
-                (seconds < 10 ? "0" : "") + std::to_string(seconds);
+            // Format “M:SS.MSS”
+            char buffer[16];
+            snprintf(buffer, sizeof(buffer), "%02d:%02d.%02d", minutes, seconds, ms);
         
-            debug_info.push_back("RACETIME: " + fmtTime);
+            debug_info.push_back(std::string("RACETIME: ") + buffer);
         }
     }
     if (g_Config.m_ClSSClientDebugEnabled)
@@ -640,10 +642,13 @@ int CSSClient::CountSafeTicks(CGameWorld *world, CCharacter *cc, CNetObj_PlayerI
 
 void CSSClient::Avoid_Freeze(CNetObj_PlayerInput *pInput, int LocalId)
 {
-    // Validate prereqs
-    if(!m_pClient || !m_pClient->m_Snap.m_pLocalCharacter) return;
-    if(LocalId < 0 || LocalId >= MAX_CLIENTS) return;
-    if (m_pClient->m_aClients[LocalId].m_Predicted.m_Pos == vec2(0,0)) return;
+    // Validate prerequisites
+    if(!m_pClient || !m_pClient->m_Snap.m_pLocalCharacter)
+        return;
+    if(LocalId < 0 || LocalId >= MAX_CLIENTS)
+        return;
+    if (m_pClient->m_aClients[LocalId].m_Predicted.m_Pos == vec2(0,0))
+        return;
 
     // Prepare two world copies for simulating hook toggle
     CGameWorld baseWorld, changeWorld;
@@ -652,71 +657,53 @@ void CSSClient::Avoid_Freeze(CNetObj_PlayerInput *pInput, int LocalId)
 
     CCharacter *pBaseChar   = baseWorld.GetCharacterById(LocalId);
     CCharacter *pChangeChar = changeWorld.GetCharacterById(LocalId);
-    if(!pBaseChar) return;
+    if(!pBaseChar || !pChangeChar)
+        return;
 
-    // 1) Compute original “safe” ticks with current aim
+    // Input snapshot and hook state
     CNetObj_PlayerInput original = *pInput;
-    int    horizon      = g_Config.m_ClSSClientBotTick;
-    float  safeOriginal = CountSafeTicks(&baseWorld, pBaseChar, original, horizon);
+    static int unhooker = 0;
 
-    // 2) Hook‑toggle decision (unchanged)
+    // Horizon for safety simulation
+    int horizon = g_Config.m_ClSSClientBotTick;
+    float safeOriginal = CountSafeTicks(&baseWorld, pBaseChar, original, 9);
+
+    // Simulate toggled hook ON
     CNetObj_PlayerInput toggled = original;
-    toggled.m_Hook = !original.m_Hook;
+    toggled.m_Hook = 1;
 
-    if (g_Config.m_ClSSClientBotAimAssistEnabled)
+    float safeToggled = CountSafeTicks(&changeWorld, pChangeChar, toggled, 4);
+    float toggledsafe = CountSafeTicks(&changeWorld, pChangeChar, original, 1);
+    float satoggledfe = CountSafeTicks(&changeWorld, pChangeChar, original, 4);
+
+    safeToggled = safeToggled + toggledsafe + satoggledfe;
+    
+        // === Hook Decision Logic ===
+
+    // If holding hook manually and unhooker is disabled, give player full control
+    if (original.m_Hook && unhooker == -1)
     {
-        const int   samples = 16;
-        const float two_pi  = 2.0f * pi;
-
-        float bestSafe = safeOriginal;    // start equal to current survival
-        vec2  bestDir  = vec2(0,0);       // zero means “don’t change”
-
-        for (int i = 0; i < samples; i++)
-        {
-            float ang = two_pi * (float(i) / float(samples));
-            vec2  dir = vec2(cosf(ang), sinf(ang));
-
-            float aimDist = 100.0f;
-            vec2  tgtPos  = pBaseChar->GetPos() + dir * aimDist;
-
-            CNetObj_PlayerInput test = *pInput;
-            test.m_TargetX = int(tgtPos.x);
-            test.m_TargetY = int(tgtPos.y);
-
-            CGameWorld simWorld;
-            simWorld.CopyWorld(&m_pClient->m_PredictedWorld);
-            CCharacter *pSimChar = simWorld.GetCharacterById(LocalId);
-            if (!pSimChar) continue;
-
-            float safe = CountSafeTicks(&simWorld, pSimChar, test, horizon);
-            if (safe > bestSafe)
-            {
-                bestSafe = safe;
-                bestDir  = dir;
-            }
-        }
-
-        // 4) Apply only if we found a strictly better direction
-        if (bestDir != vec2(0,0))
-        {
-            vec2 aimPos = pBaseChar->GetPos() + bestDir * 100.0f;
-            pInput->m_TargetX = int(aimPos.x);
-            pInput->m_TargetY = int(aimPos.y);
-        }
-        // else: all directions were ≤ original survival ⇒ leave aim unchanged
+        return;
     }
 
-    float safeToggled = CountSafeTicks(&changeWorld, pChangeChar, toggled, horizon);
-    if (safeToggled > safeOriginal)
+    // If toggling hook improves safety and we're not already holding
+    if (safeToggled > safeOriginal && unhooker <= 0)
     {
-        pInput->m_Hook = toggled.m_Hook;
-        safeOriginal   = safeToggled; // update baseline if we toggled
+        pInput->m_Hook = 1;
+        unhooker = 4; // allow holding for next 3 ticks
     }
-
-    // 3) Aim‑assist: only if enabled
-
-    // …[rest of function]…
-}      
+    else if (unhooker > 0)
+    {
+        pInput->m_Hook = 1;
+        unhooker--;
+    }
+    else
+    {
+        pInput->m_Hook = 0;
+        if (unhooker != -1)
+            unhooker = 0; // clamp to 0 if not in player-controlled state
+    }
+}
 
 void CSSClient::LeftRight_Avoid(CNetObj_PlayerInput *pInput, int LocalId)
 {
@@ -1006,6 +993,7 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     vec2 o = OldTeePos;
 
     int race = -1;                     // sentinel: no hit yet
+    int last = -1;
     int end  =  0;
 
     for (std::size_t i = 0; i < m_RecordInputs.size(); i++)
@@ -1025,13 +1013,13 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
         // Check current tile
         int tileX = round_to_int((g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->GetPos().x / 32);
         int tileY = round_to_int((g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->GetPos().y / 32);
-        if (baseWorld.Collision()->GetFrontIndex(tileX, tileY) == TILE_START)
+        if (baseWorld.Collision()->GetFrontIndex(tileX, tileY) == TILE_START || baseWorld.Collision()->GetIndex(tileX, tileY) == TILE_START)
         {
             race = baseWorld.m_GameTick;
         }
-        else if (baseWorld.Collision()->GetFrontIndex(tileX, tileY) == TILE_FINISH)
+        else if ((baseWorld.Collision()->GetFrontIndex(tileX, tileY) == TILE_FINISH || baseWorld.Collision()->GetIndex(tileX, tileY) == TILE_FINISH) && last == -1)
         {
-            end = baseWorld.m_GameTick;
+            last = baseWorld.m_GameTick;
         }
 
         baseWorld.Tick();
@@ -1039,8 +1027,7 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
         m_TasPos.push_back(TeePos);
     }
 
-    if (end == 0)
-        end = baseWorld.m_GameTick;
+    end = (last != -1) ? last : baseWorld.m_GameTick;
 
     // Compute ticks since last touch
     if (race != -1)
