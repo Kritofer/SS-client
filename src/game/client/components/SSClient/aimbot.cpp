@@ -26,6 +26,31 @@ int CSSCAimbot::BestAngle(vec2 currpos, vec2 targetpos)
     return static_cast<int>(angleDeg);
 }
 
+// Returns predicted ticks based on distance, using precomputed graph
+int PredictHookTicks(float distance, float hookSpeed, float hookLength)
+{
+    const int maxTicks = round(hookLength / hookSpeed); // conservative max ticks to reach max hookLength
+    float distances[maxTicks + 1];
+
+    // Build the graph (ticks → distance)
+    for(int t = 0; t <= maxTicks; ++t)
+        distances[t] = hookSpeed * t;
+
+    // Clamp to max range
+    if(distance > hookLength)
+        return -1; // too far
+
+    // Search for first tick where distance is enough
+    for(int t = 1; t <= maxTicks; ++t)
+    {
+        if(distances[t] >= distance)
+            return t;
+    }
+
+    return maxTicks; // fallback: max time
+}
+
+
 void CSSCAimbot::AimTo(CNetObj_PlayerInput *pInput, int LocalId, int id, bool silent, const float offset)
 {
     if(!pInput)
@@ -40,11 +65,21 @@ void CSSCAimbot::AimTo(CNetObj_PlayerInput *pInput, int LocalId, int id, bool si
     pWorld.m_WorldConfig.m_PredictFreeze = true;
     pWorld.m_WorldConfig.m_PredictTiles = true;
 
-    int HookLength = m_pClient->GetTuning(g_Config.m_ClDummy)->m_HookLength;
-    int HookSpeed = m_pClient->GetTuning(g_Config.m_ClDummy)->m_HookFireSpeed;
-    int Ping = m_pClient->m_Snap.m_pLocalInfo->m_Latency;
+    int HookTicks;
 
-    int HookTicks = 1;
+    if(m_pClient->m_PredictedChar.m_Input.m_Hook)
+    {
+        int HookLength = m_pClient->GetTuning(g_Config.m_ClDummy)->m_HookLength;
+        int HookSpeed = m_pClient->GetTuning(g_Config.m_ClDummy)->m_HookFireSpeed;
+        vec2 PosLocal = m_pClient->m_Snap.m_aCharacters[LocalId].m_Position;
+        vec2 PosTarget = m_pClient->m_Snap.m_aCharacters[id].m_Position;
+
+        float Distance = length(PosTarget - PosLocal);
+        HookTicks = PredictHookTicks(Distance, HookSpeed, HookLength);
+
+        if(HookTicks < 0)
+            return; // target too far to hook
+    }
     if(m_pClient->m_PredictedChar.m_ActiveWeapon == WEAPON_LASER && m_pClient->m_PredictedChar.m_Input.m_Fire)
         HookTicks = 0;
     

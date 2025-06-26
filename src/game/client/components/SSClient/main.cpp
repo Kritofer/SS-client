@@ -226,22 +226,22 @@ void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_Pla
         g_Config.m_ClSSClientTasSmooth = 0;
     }
 
-    if (g_Config.m_ClSSClientBotMoveEnabled && g_Config.m_ClSSClientBotEnabled)
-    {
-        LeftRight_Avoid(aInputdata,  LocalId);
-        LeftRight_Avoid(aInputdummy, DummyId);
-    }
-
     if (g_Config.m_ClSSClientBotHookEnabled && g_Config.m_ClSSClientBotEnabled)
     {
         Avoid_Freeze(aInputdata,  LocalId);
-        Avoid_Freeze(aInputdummy, DummyId);
+        // Avoid_Freeze(aInputdummy, DummyId);
+    }
+
+    if (g_Config.m_ClSSClientBotMoveEnabled && g_Config.m_ClSSClientBotEnabled)
+    {
+        LeftRight_Avoid(aInputdata,  LocalId);
+        // LeftRight_Avoid(aInputdummy, DummyId);
     }
 
     if (g_Config.m_ClSSClientFakeAimEnabled)
     {
         Fake_Aim(aInputdata,  LocalId);
-        Fake_Aim(aInputdummy, DummyId);
+        // Fake_Aim(aInputdummy, DummyId);
     }
 
     if (g_Config.m_ClSSClientAimbotEnabled)
@@ -642,68 +642,79 @@ int CSSClient::CountSafeTicks(CGameWorld *world, CCharacter *cc, CNetObj_PlayerI
 
 void CSSClient::Avoid_Freeze(CNetObj_PlayerInput *pInput, int LocalId)
 {
-    // Validate prerequisites
-    if(!m_pClient || !m_pClient->m_Snap.m_pLocalCharacter)
+    if (!m_pClient || !m_pClient->m_Snap.m_pLocalCharacter)
         return;
-    if(LocalId < 0 || LocalId >= MAX_CLIENTS)
+    if (LocalId < 0 || LocalId >= MAX_CLIENTS)
         return;
-    if (m_pClient->m_aClients[LocalId].m_Predicted.m_Pos == vec2(0,0))
-        return;
-
-    // Prepare two world copies for simulating hook toggle
-    CGameWorld baseWorld, changeWorld;
-    baseWorld.CopyWorld(&m_pClient->m_PredictedWorld);
-    changeWorld.CopyWorld(&m_pClient->m_PredictedWorld);
-
-    CCharacter *pBaseChar   = baseWorld.GetCharacterById(LocalId);
-    CCharacter *pChangeChar = changeWorld.GetCharacterById(LocalId);
-    if(!pBaseChar || !pChangeChar)
+    if (m_pClient->m_aClients[LocalId].m_Predicted.m_Pos == vec2(0, 0))
         return;
 
-    // Input snapshot and hook state
-    CNetObj_PlayerInput original = *pInput;
-    static int unhooker = 0;
+    static int known = -1;
 
-    // Horizon for safety simulation
+    int currentTick = m_pClient->m_PredictedWorld.m_GameTick;
     int horizon = g_Config.m_ClSSClientBotTick;
-    float safeOriginal = CountSafeTicks(&baseWorld, pBaseChar, original, 9);
 
-    // Simulate toggled hook ON
-    CNetObj_PlayerInput toggled = original;
-    toggled.m_Hook = 1;
-
-    float safeToggled = CountSafeTicks(&changeWorld, pChangeChar, toggled, 4);
-    float toggledsafe = CountSafeTicks(&changeWorld, pChangeChar, original, 1);
-    float satoggledfe = CountSafeTicks(&changeWorld, pChangeChar, original, 4);
-
-    safeToggled = safeToggled + toggledsafe + satoggledfe;
-    
-        // === Hook Decision Logic ===
-
-    // If holding hook manually and unhooker is disabled, give player full control
-    if (original.m_Hook && unhooker == -1)
+    // If we have a known hook moment scheduled
+    if (known >= currentTick)
     {
+        if (known == currentTick)
+        {
+            pInput->m_Hook = (pInput->m_Hook == 1) ? 0 : 1;
+            known = -1;
+        }
         return;
     }
 
-    // If toggling hook improves safety and we're not already holding
-    if (safeToggled > safeOriginal && unhooker <= 0)
+    // Simulate current input
+    CGameWorld baseWorld;
+    baseWorld.CopyWorld(&m_pClient->m_PredictedWorld);
+
+    CCharacter *pChar = baseWorld.GetCharacterById(LocalId);
+    if (!pChar)
+        return;
+
+    CNetObj_PlayerInput original = *pInput;
+    int safeTicks = CountSafeTicks(&baseWorld, pChar, original, horizon);
+
+    // If character stays unfrozen the whole time, no action needed
+    if (safeTicks >= horizon)
+        return;
+
+    // Try toggling hook at earlier ticks (going backwards)
+    for (int t = safeTicks - 1; t >= 0; t--)
     {
-        pInput->m_Hook = 1;
-        unhooker = 4; // allow holding for next 3 ticks
-    }
-    else if (unhooker > 0)
-    {
-        pInput->m_Hook = 1;
-        unhooker--;
-    }
-    else
-    {
-        pInput->m_Hook = 0;
-        if (unhooker != -1)
-            unhooker = 0; // clamp to 0 if not in player-controlled state
+        // Setup test world
+        CGameWorld testWorld;
+        testWorld.CopyWorld(&m_pClient->m_PredictedWorld);
+        CCharacter *testChar = testWorld.GetCharacterById(LocalId);
+        if (!testChar)
+            continue;
+
+        // Apply toggle at tick 't'
+        int simTick = 0;
+        CNetObj_PlayerInput trial = original;
+        while (simTick < t)
+        {
+            testChar->OnDirectInput(&original);
+            testWorld.m_GameTick++;
+            testChar->OnPredictedInput(&original);
+            testWorld.Tick();
+            simTick++;
+        }
+
+        // Toggle hook only at tick 't'
+        trial.m_Hook = (original.m_Hook == 1) ? 0 : 1;
+
+        // Run CountSafeTicks from that tick forward with hook toggled
+        int remaining = CountSafeTicks(&testWorld, testChar, trial, horizon - t);
+        if (remaining >= safeTicks)
+        {
+            known = currentTick + t;
+            break;
+        }
     }
 }
+
 
 void CSSClient::LeftRight_Avoid(CNetObj_PlayerInput *pInput, int LocalId)
 {
