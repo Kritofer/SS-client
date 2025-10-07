@@ -318,6 +318,7 @@ MACRO_CONFIG_INT(ClSSClientBotTick2, ssc_bot_tick_move, 7, 0, 60, CFGFLAG_CLIENT
 MACRO_CONFIG_INT(ClSSClientBotMinTick, ssc_bot_min_tick, 0, 0, 25, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Avoid Bot Min Ticks")
 MACRO_CONFIG_INT(ClSSClientTasState, ssc_tas_state, 0, 0, 3, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Tas State")
 MACRO_CONFIG_INT(ClSSClientTasStep, ssc_tas_step, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Tas Step")
+MACRO_CONFIG_INT(ClSSClientTasPreview, ssc_tas_preview, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Preview 1 tick on tas")
 MACRO_CONFIG_INT(ClSSClientTasRewind, ssc_tas_rewind, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Tas Rewind")
 MACRO_CONFIG_INT(ClSSClientFakeAimEnabled, ssc_fakeaim_enabled, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "Enable Fake aim")
 MACRO_CONFIG_INT(ClSSClientHidden, ssc_hidden, 0, 0, 1, CFGFLAG_CLIENT | CFGFLAG_SAVE, "changes the ssclients tab name to be Profiles")

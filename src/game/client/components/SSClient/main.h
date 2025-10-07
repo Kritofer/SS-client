@@ -54,8 +54,9 @@ public:
 
 	static void TempSaveC(IConfigManager *pConfig, void *pUserData);
 
-	int GetVersion() { return CURR_VER; };
 	float GetTextSize(const char* pText, float FontSize = 10.0f);
+
+	vec2 TPSimple(const vec2& pos);
 
 	int GetHolding() { return Weapon; };
 	vec2 GetTasPos() { return OldTeePos; };
@@ -87,7 +88,6 @@ private:
 
 	int m_RecordIndex = 0;
 	int m_PredIndex = 0;
-	int CURR_VER = 1;
 	bool m_ResetPlayerInput = true;
 	bool m_HookFlying = false;
 	bool m_Dead = false;

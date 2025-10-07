@@ -4,6 +4,14 @@
 #include <game/client/prediction/gameworld.h>
 #include <game/client/gameclient.h>
 
+static inline vec2 safe_normalize(const vec2 &v)
+{
+    float len = length(v);
+    if(len <= 1e-6f) // avoid division by ~0
+        return vec2(0, 0);
+    return v / len;
+}
+
 int CSSCAimbot::BestAngle(vec2 currpos, vec2 targetpos)
 {
     // Predict target's future position
@@ -29,14 +37,16 @@ int CSSCAimbot::BestAngle(vec2 currpos, vec2 targetpos)
 // Returns predicted ticks based on distance, using precomputed graph
 int PredictHookTicks(float distance, float hookSpeed, float hookLength)
 {
-    const int maxTicks = round(hookLength / hookSpeed); // conservative max ticks to reach max hookLength
+    if (hookLength == 0 || hookSpeed == 0)
+        return -1;
+    const int maxTicks = ceil(hookLength / hookSpeed); // conservative max ticks to reach max hookLength
     float distances[maxTicks + 1];
 
     // Build the graph (ticks → distance)
     for(int t = 0; t <= maxTicks; ++t)
         distances[t] = hookSpeed * t;
 
-    // Clamp to max range
+    // clamp
     if(distance > hookLength)
         return -1; // too far
 
@@ -55,6 +65,9 @@ void CSSCAimbot::AimTo(CNetObj_PlayerInput *pInput, int LocalId, int id, bool si
 {
     if(!pInput)
         return;
+    
+    if(id < 0 || id >= MAX_CLIENTS)
+        return;
 
     CCharacterCore *pLocalChar = &m_pClient->m_PredictedChar;
     vec2 currpos = pLocalChar->m_Pos;
@@ -62,23 +75,26 @@ void CSSCAimbot::AimTo(CNetObj_PlayerInput *pInput, int LocalId, int id, bool si
     CGameWorld pWorld;
     pWorld.CopyWorld(&m_pClient->m_GameWorld);
     pWorld.m_WorldConfig.m_PredictWeapons = true;
+    pWorld.m_WorldConfig.m_PredictDDRace = true; // pWorld.m_WorldConfig.m_IsDDRace;
     pWorld.m_WorldConfig.m_PredictFreeze = true;
     pWorld.m_WorldConfig.m_PredictTiles = true;
 
-    int HookTicks;
+    int HookTicks = 0;
 
     if(m_pClient->m_PredictedChar.m_Input.m_Hook)
     {
         int HookLength = m_pClient->GetTuning(g_Config.m_ClDummy)->m_HookLength;
-        int HookSpeed = m_pClient->GetTuning(g_Config.m_ClDummy)->m_HookFireSpeed;
+        int HookSpeed  = m_pClient->GetTuning(g_Config.m_ClDummy)->m_HookFireSpeed;
         vec2 PosLocal = m_pClient->m_Snap.m_aCharacters[LocalId].m_Position;
         vec2 PosTarget = m_pClient->m_Snap.m_aCharacters[id].m_Position;
 
         float Distance = length(PosTarget - PosLocal);
-        HookTicks = PredictHookTicks(Distance, HookSpeed, HookLength);
-
-        if(HookTicks < 0)
+        if(Distance < HookSpeed)
+            HookTicks = 0;
+        if(Distance > HookLength || Distance == 0)
             return; // target too far to hook
+        else
+            HookTicks = round_to_int(Distance / HookSpeed);
     }
     if(m_pClient->m_PredictedChar.m_ActiveWeapon == WEAPON_LASER && m_pClient->m_PredictedChar.m_Input.m_Fire)
         HookTicks = 0;

@@ -16,6 +16,8 @@
 #include <curl/curl.h>
 #include <utility> 
 #include <stack>
+#include <algorithm>
+#include <random>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -229,13 +231,13 @@ void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_Pla
     if (g_Config.m_ClSSClientBotHookEnabled && g_Config.m_ClSSClientBotEnabled)
     {
         Avoid_Freeze(aInputdata,  LocalId);
-        // Avoid_Freeze(aInputdummy, DummyId);
+        Avoid_Freeze(aInputdummy, DummyId);
     }
 
     if (g_Config.m_ClSSClientBotMoveEnabled && g_Config.m_ClSSClientBotEnabled)
     {
         LeftRight_Avoid(aInputdata,  LocalId);
-        // LeftRight_Avoid(aInputdummy, DummyId);
+        LeftRight_Avoid(aInputdummy, DummyId);
     }
 
     if (g_Config.m_ClSSClientFakeAimEnabled)
@@ -411,8 +413,6 @@ void CSSClient::OnRender()
 
     if (g_Config.m_ClSSClientTasState == 1 && TeePos != vec2(0,0))
     {
-        vec2 Pos = GetTasPos();
-
         // Use ghost tee rendering (e.g., semi-transparent)
         CGameClient::CClientData pData = m_pClient->m_aClients[m_pClient->m_aLocalIds[g_Config.m_ClDummy]];
         CTeeRenderInfo pInfo = pData.m_RenderInfo;
@@ -429,7 +429,6 @@ void CSSClient::OnRender()
         
         for(auto pLaser : Lasers)
         {
-            // Lasers usually have From() and Pos() methods for endpoints
             vec2 From = pLaser.GetFrom();
             vec2 To = pLaser.GetPos();
             vec4 Color = vec4(1.0f, 0.6f, 0.0f, 1.0f);
@@ -640,81 +639,46 @@ int CSSClient::CountSafeTicks(CGameWorld *world, CCharacter *cc, CNetObj_PlayerI
     return safe;
 }
 
+struct AFSnapshot {
+    std::unique_ptr<CGameWorld> World;
+    CNetObj_PlayerInput Input;
+};
+
+// Put this replacement into your .cpp (replaces the previous Avoid_Freeze)
 void CSSClient::Avoid_Freeze(CNetObj_PlayerInput *pInput, int LocalId)
 {
-    if (!m_pClient || !m_pClient->m_Snap.m_pLocalCharacter)
-        return;
     if (LocalId < 0 || LocalId >= MAX_CLIENTS)
         return;
-    if (m_pClient->m_aClients[LocalId].m_Predicted.m_Pos == vec2(0, 0))
+
+    // Get the predicted position of the local player
+    CCharacterCore Predict = m_pClient->m_aClients[LocalId].m_Predicted;
+    if (Predict.m_Pos == vec2(0, 0))
         return;
 
-    static int known = -1;
+    CGameWorld continueworld, toggleworld;
 
-    int currentTick = m_pClient->m_PredictedWorld.m_GameTick;
-    int horizon = g_Config.m_ClSSClientBotTick;
+    continueworld.CopyWorld(&m_pClient->m_PredictedWorld);
+    toggleworld  .CopyWorld(&m_pClient->m_PredictedWorld);
 
-    // If we have a known hook moment scheduled
-    if (known >= currentTick)
-    {
-        if (known == currentTick)
-        {
-            pInput->m_Hook = (pInput->m_Hook == 1) ? 0 : 1;
-            known = -1;
-        }
-        return;
-    }
+    CCharacter *pLocalChar = continueworld.GetCharacterById(LocalId);
+    CCharacter *pToggleChar = toggleworld .GetCharacterById(LocalId);
 
-    // Simulate current input
-    CGameWorld baseWorld;
-    baseWorld.CopyWorld(&m_pClient->m_PredictedWorld);
-
-    CCharacter *pChar = baseWorld.GetCharacterById(LocalId);
-    if (!pChar)
+    if(!pLocalChar)
         return;
 
-    CNetObj_PlayerInput original = *pInput;
-    int safeTicks = CountSafeTicks(&baseWorld, pChar, original, horizon);
+    CNetObj_PlayerInput keep  = *pInput;
+    CNetObj_PlayerInput toggle= *pInput;
 
-    // If character stays unfrozen the whole time, no action needed
-    if (safeTicks >= horizon)
-        return;
+    toggle.m_Hook = !keep.m_Hook;
 
-    // Try toggling hook at earlier ticks (going backwards)
-    for (int t = safeTicks - 1; t >= 0; t--)
-    {
-        // Setup test world
-        CGameWorld testWorld;
-        testWorld.CopyWorld(&m_pClient->m_PredictedWorld);
-        CCharacter *testChar = testWorld.GetCharacterById(LocalId);
-        if (!testChar)
-            continue;
+    int horizon = g_Config.m_ClSSClientBotTick1;
+    int keep_ticks = CountSafeTicks(&continueworld, pLocalChar, keep, horizon);
+    int toggle_ticks = CountSafeTicks(&toggleworld, pToggleChar, toggle, horizon);
 
-        // Apply toggle at tick 't'
-        int simTick = 0;
-        CNetObj_PlayerInput trial = original;
-        while (simTick < t)
-        {
-            testChar->OnDirectInput(&original);
-            testWorld.m_GameTick++;
-            testChar->OnPredictedInput(&original);
-            testWorld.Tick();
-            simTick++;
-        }
-
-        // Toggle hook only at tick 't'
-        trial.m_Hook = (original.m_Hook == 1) ? 0 : 1;
-
-        // Run CountSafeTicks from that tick forward with hook toggled
-        int remaining = CountSafeTicks(&testWorld, testChar, trial, horizon - t);
-        if (remaining >= safeTicks)
-        {
-            known = currentTick + t;
-            break;
-        }
+    if (toggle_ticks > keep_ticks) {
+        pInput->m_Hook = toggle.m_Hook;
     }
 }
-
 
 void CSSClient::LeftRight_Avoid(CNetObj_PlayerInput *pInput, int LocalId)
 {
@@ -781,6 +745,10 @@ void CSSClient::Predict_Pos()
 
     CGameWorld pred;
     pred.CopyWorld(&m_pClient->m_PredictedWorld);
+    pred.m_WorldConfig.m_PredictWeapons = true;
+    pred.m_WorldConfig.m_PredictDDRace = true; // pred.m_WorldConfig.m_IsDDRace
+    pred.m_WorldConfig.m_PredictFreeze = true;
+    pred.m_WorldConfig.m_PredictTiles = true;
 
     CNetObj_PlayerInput inp = Predict.m_Input;
 
@@ -855,6 +823,52 @@ vec2 Quantize(vec2 v)
         static_cast<int>(v.x * 32000) / 32000.0f,
         static_cast<int>(v.y * 32000) / 32000.0f
     );
+}
+
+template <typename T>
+void scramble(std::vector<T> &vec)
+{
+    // Random number generator
+    static std::random_device rd;
+    static std::mt19937 g(rd());
+
+    // Shuffle the vector in place
+    std::shuffle(vec.begin(), vec.end(), g);
+}
+
+vec2 CSSClient::TPSimple(const vec2& pos) {
+    int curr_idx = m_pClient->Collision()->GetMapIndex(pos);
+    if (curr_idx == -1) {
+        return pos;
+    }
+    CTeleTile curr_tele = m_pClient->Collision()->TeleLayer()[curr_idx];
+    dbg_msg("SSC", "idx=%d type=%d number=%d", 
+        curr_idx,
+        curr_tele.m_Type,
+        curr_tele.m_Number
+    );
+    if(curr_tele.m_Number <= 0) return pos;
+    if (curr_tele.m_Type != TILE_TELEINEVIL && curr_tele.m_Type != TILE_TELEIN && curr_tele.m_Type != TILE_TELECHECKIN && curr_tele.m_Type != TILE_TELECHECKINEVIL) { // 10??
+        return pos;
+    } 
+
+    std::vector<vec2> tele_outs = m_pClient->Collision()->TeleOuts(curr_tele.m_Number - 1);
+    if (tele_outs.empty()) {
+        return pos;
+    }
+
+    for (auto &vpos : tele_outs) {
+        dbg_msg("VECTOR", "pos: (%.2f, %.2f)", vpos.x, vpos.y);
+    }
+
+    // if (tele_outs.empty()) {
+    //     return pos;
+    // }
+
+    scramble(tele_outs);
+
+    dbg_msg("SSC","tas touching tele!!!!");
+    return tele_outs[0]; // just to show that its touching
 }
 
 void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj_PlayerInput *dInput, int DummyId)
@@ -988,7 +1002,7 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     baseWorld.CopyWorld(&m_pClient->m_PredictedWorld);
     baseWorld.m_WorldConfig.m_PredictTiles = true;
     baseWorld.m_WorldConfig.m_PredictFreeze = true;
-    baseWorld.m_WorldConfig.m_PredictDDRace = true;
+    baseWorld.m_WorldConfig.m_PredictDDRace = baseWorld.m_WorldConfig.m_IsDDRace;
     baseWorld.m_WorldConfig.m_PredictWeapons = true;
 
     CCharacter *pLocalChar = baseWorld.GetCharacterById(LocalId);
@@ -1011,6 +1025,69 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     {
         CNetObj_PlayerInput pinp = m_RecordInputs[i];
         CNetObj_PlayerInput dinp = m_RecordInputsD[i];
+
+        pLocalChar->OnDirectInput(&pinp);
+        if (hasdummy)
+            pLocalDummy->OnDirectInput(&dinp);
+
+        baseWorld.m_GameTick++;
+
+        pLocalChar->OnPredictedInput(&pinp);
+        if (hasdummy)
+            pLocalDummy->OnPredictedInput(&dinp);
+
+        vec2 tp_out = TPSimple(pLocalChar->GetCore().m_Pos);
+        if(tp_out != pLocalChar->m_Pos)
+        {
+            auto Core = pLocalChar->GetCore();
+            Core.m_Pos = tp_out;
+            pLocalChar->m_Pos = tp_out;
+            pLocalChar->m_PrevPos = tp_out;
+            Core.m_Vel = vec2(0,0);
+            Core.m_HookState = HOOK_IDLE;
+            Core.m_HookPos = tp_out;
+            pLocalChar->SetCore(Core);
+        }
+
+        if (hasdummy) {
+            tp_out = TPSimple(pLocalDummy->GetCore().m_Pos);
+            if(tp_out != pLocalDummy->m_Pos)
+            {
+                auto Core = pLocalDummy->GetCore();
+                Core.m_Pos = tp_out;
+                pLocalDummy->m_Pos = tp_out;
+                pLocalDummy->m_PrevPos = tp_out;
+                Core.m_Vel = vec2(0,0);
+                Core.m_HookState = HOOK_IDLE;
+                Core.m_HookPos = tp_out;
+                pLocalDummy->SetCore(Core);
+            }
+        }
+
+        baseWorld.Tick();
+
+        // // Check current tile
+        float tileX = (g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->m_Pos.x;
+        float tileY = (g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->m_Pos.y;
+        // int mindex = baseWorld.Collision()->GetMapIndex({tileX, tileY});
+        // int index = baseWorld.Collision()->FrontLayer()[mindex].m_Index;
+        // if (index == TILE_START)
+        // {
+        //     race = baseWorld.m_GameTick;
+        // }
+        // else if ((index == TILE_FINISH) && last == -1)
+        // {
+        //     last = baseWorld.m_GameTick;
+        // }
+
+        TeePos = vec2(tileX, tileY);
+        m_TasPos.push_back(TeePos);
+    }
+
+    if (g_Config.m_ClSSClientTasPreview)
+    { // preview 1 tick with current inputs
+        CNetObj_PlayerInput pinp = nInput;
+        CNetObj_PlayerInput dinp = kInput;
 
         pLocalChar->OnDirectInput(&pinp);
         if (hasdummy)
@@ -1220,12 +1297,18 @@ void CSSClient::SmoothRecording(std::vector<CNetObj_PlayerInput>& Inputs)
     {
         bool hookNow = Inputs[i].m_Hook;
         bool hookPrev = Inputs[i - 1].m_Hook;
+        
         bool fireNow = Inputs[i].m_Fire & 1;
         bool firePrev = Inputs[i - 1].m_Fire & 1;
+
+        // TODO: make this usable
+        // bool freezeNow = 
 
         // Trigger only when Hook or Fire changes from 0 → 1
         bool risingHook = !hookPrev && hookNow;
         bool risingFire = !firePrev && fireNow;
+        // or when freeze changes from 1 to 0
+        // bool risingFreeze = freezePrev && !freezeNow
 
         if (risingHook || risingFire)
         {
@@ -1482,27 +1565,28 @@ void CSSClient::ShowLaserPath(vec2 Pos, vec2 Target)
 
 void CSSClient::ShowGrenadePath(vec2 StartPos, vec2 Target)
 {
-    // 1) compute normalized firing direction
-    vec2 Dir = normalize(Target);
+    // 1) compute initial velocity vector
+    CTuningParams *pTuning = m_pClient->m_PredictedWorld.GetTuning(m_pClient->m_PredictedWorld.m_WorldConfig.m_UseTuneZones ? Collision()->IsTune(Collision()->GetMapIndex(m_pClient->m_PredictedChar.m_Pos)) : 0);
 
-    // 2) real Teeworlds parameters (tweak if you have custom values)
-    const float Speed     = 775.0f;  // units/sec
-    const float Curvature = 400.0f;   // gravity factor (units/sec²)
+    vec2 Velocity = normalize(Target);
+
     const float TickRate  = (float)Client()->GameTickSpeed();    // usually 50
-    const float StepTime  = 1.0f / TickRate;                 // seconds per tick
+    const float StepTime  = 1.0f / TickRate;                     // seconds per tick
+    const float Speed     = pTuning->m_GrenadeSpeed;  
+    const float Curvature = pTuning->m_GrenadeCurvature; 
+    const int Lifetime    = round_to_int(pTuning->m_GrenadeLifetime * TickRate); 
 
-    // 3) simulate forward, drawing segment by segment
-    vec2 PrevPos = StartPos;
-    for(int Tick = 1; Tick < 100; ++Tick)  // simulate 100 ticks (2s)
+    // 2) simulate forward, drawing segment by segment
+    vec2 StartProjPos = StartPos + Velocity * 21.0f;
+    vec2 PrevPos = StartProjPos;
+    for(int Tick = 1; Tick < Lifetime; ++Tick)
     {
         float t = Tick * StepTime;
 
-        // position = start + dir*speed*t + [0, curvature*t²]
-        vec2 Pos;
-        Pos.x = StartPos.x + Dir.x * Speed * t;
-        Pos.y = StartPos.y + Dir.y * Speed * t + Curvature * t * t;
+        // compute position using CalcPos
+        vec2 Pos = CalcPos(StartProjPos, Velocity, Curvature, Speed, t);
 
-        // if we hit a wall between PrevPos→Pos, draw only up to hit‑point and stop
+        // collision detection
         vec2 Hit;
         if(Collision()->IntersectLine(PrevPos, Pos, &Hit, nullptr))
         {
@@ -1510,11 +1594,12 @@ void CSSClient::ShowGrenadePath(vec2 StartPos, vec2 Target)
             return;
         }
 
-        // otherwise draw this segment
+        // draw segment
         m_pClient->m_Draw.LineDraw(PrevPos, Pos, vec4(1.f, 0.4f, 0.4f, 1.f));
         PrevPos = Pos;
     }
 }
+
 
 void CSSClient::debug(const char *owner, const char *fmt, ...)
 {
@@ -1617,7 +1702,7 @@ void CSSClient::SaveTas(const std::string &Filename)
     if(!out.is_open()) return;
     // Header
     out << "# SSC TAS Replay\n";
-    out << "Version: 3\n";
+    out << "Version: 4\n";
     out << "Ticks: " << m_RecordInputs.size() << "\n\n";
     // Frames
     for(size_t i = 0; i < m_RecordInputs.size(); ++i)
@@ -1629,6 +1714,8 @@ void CSSClient::SaveTas(const std::string &Filename)
         out << "[Hook="    << f.m_Hook     << "]\n";
         out << "[Jump="    << f.m_Jump     << "]\n";
         out << "[Dir="     << f.m_Direction<< "]\n";
+        out << "[NWeapon=" << f.m_NextWeapon<<"]\n";
+        out << "[PWeapon=" << f.m_PrevWeapon<<"]\n";
         out << "[TargetX=" << f.m_TargetX  << "]\n";
         out << "[TargetY=" << f.m_TargetY  << "]\n";
 
@@ -1640,6 +1727,8 @@ void CSSClient::SaveTas(const std::string &Filename)
         out << "[DHook="   << d.m_Hook     << "]\n";
         out << "[DJump="   << d.m_Jump     << "]\n";
         out << "[DDir="    << d.m_Direction<< "]\n";
+        out << "[DNWeapon="<< d.m_NextWeapon<<"]\n";
+        out << "[DPWeapon="<< d.m_PrevWeapon<<"]\n";
         out << "[DTargetX="<< d.m_TargetX  << "]\n";
         out << "[DTargetY="<< d.m_TargetY  << "]\n";
 
@@ -1665,7 +1754,19 @@ void CSSClient::LoadTas(const std::string &Filename)
 
     while (std::getline(in, line))
     {
-        if (line.rfind("<ID:", 0) == 0)
+        if (line.rfind("Version: ", 0) == 0) 
+        {
+            continue; // nothing rn
+        }
+        else if (line.rfind("Ticks: ", 0) == 0) 
+        {
+            size_t full_len = static_cast<size_t>(std::stoull(line.substr(7, line.size() - 7)));
+            if (m_RecordInputs.capacity() < full_len) {
+                m_RecordInputs.reserve(full_len);
+                m_RecordInputsD.reserve(full_len);
+            }
+        }
+        else if (line.rfind("<ID:", 0) == 0)
         {
             inFrame = true;
             currentInput = {}; // Reset for a new frame
@@ -1686,6 +1787,10 @@ void CSSClient::LoadTas(const std::string &Filename)
                 currentInput.m_Jump = std::stoi(line.substr(6, line.find("]") - 6));
             else if (line.rfind("[Dir=", 0) == 0)
                 currentInput.m_Direction = std::stoi(line.substr(5, line.find("]") - 5));
+            else if (line.rfind("[NWeapon=", 0) == 0)
+                currentInput.m_NextWeapon = std::stoi(line.substr(9, line.find("]") - 9));
+            else if (line.rfind("[PWeapon=", 0) == 0)
+                currentInput.m_PrevWeapon = std::stoi(line.substr(9, line.find("]") - 9));
             else if (line.rfind("[TargetX=", 0) == 0)
                 currentInput.m_TargetX = std::stoi(line.substr(9, line.find("]") - 9));
             else if (line.rfind("[TargetY=", 0) == 0)
@@ -1701,6 +1806,10 @@ void CSSClient::LoadTas(const std::string &Filename)
                 currentDInput.m_Jump = std::stoi(line.substr(7, line.find("]") - 7));
             else if (line.rfind("[DDir=", 0) == 0)
                 currentDInput.m_Direction = std::stoi(line.substr(6, line.find("]") - 6));
+            else if (line.rfind("[DNWeapon=", 0) == 0)
+                currentInput.m_NextWeapon = std::stoi(line.substr(10, line.find("]") - 10));
+            else if (line.rfind("[DPWeapon=", 0) == 0)
+                currentInput.m_PrevWeapon = std::stoi(line.substr(10, line.find("]") - 10));
             else if (line.rfind("[DTargetX=", 0) == 0)
                 currentDInput.m_TargetX = std::stoi(line.substr(10, line.find("]") - 10));
             else if (line.rfind("[DTargetY=", 0) == 0)
@@ -1713,89 +1822,7 @@ void CSSClient::LoadTas(const std::string &Filename)
     in.close();
 }
 
-void OnTimeResponse(char *pResponse, size_t Length, void *pUser)
-{
-    std::string TimeStr(pResponse, Length); // "2025-04-23T17:08:12+00:00"
-
-    // Truncate to "YYYY-MM-DDTHH:MM:SS"
-    TimeStr = TimeStr.substr(0, 19);
-    std::replace(TimeStr.begin(), TimeStr.end(), 'T', ' ');
-
-    struct tm Tm {};
-    strptime(TimeStr.c_str(), "%Y-%m-%d %H:%M:%S", &Tm);
-
-    time_t Timestamp = timegm(&Tm); // Convert to Unix timestamp (UTC)
-    dbg_msg("timer", "Parsed UNIX timestamp: %lld", (long long)Timestamp);
-
-    // You can now compare it to the initial launch time to enforce a 24h limit
-}
-
-size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-    ((std::string*)userp)->append((char*)contents, size * nmemb);
-    return size * nmemb;
-}
-
 void CSSClient::CheckAndCrash()
 {
-    // 1) Fire off the HTTP GET
-    //    NOTE: HttpGet returns a CHttpRequest which you must then run & wait on
-    std::shared_ptr<CHttpRequest> pReq = HttpGet("http://worldtimeapi.org/api/timezone/Etc/UTC");
-    if (!pReq)
-    {
-        dbg_msg("SSC", "HttpGet failed → crash");
-        Client()->Quit();
-        return;
-    }
-    pReq->Timeout({ /* connect */ 5, /* total */ 10, /* low-speed */ 0, /* low-speed time */ 0 });
-    // IClient::Engine()->Http()->Run(pReq);
-    pReq->Wait();  // block until done :contentReference[oaicite:2]{index=2}
-
-    // 2) Parse the JSON body
-    json_value *pJson = pReq->ResultJson();
-    if (!pJson)
-    {
-        dbg_msg("SSC", "ResultJson() failed → crash");
-        Client()->Quit();
-        return;
-    }
-
-    // 3) Extract the utc_datetime string
-    //    operator[] and operator const char* are provided by json-parser/json.h
-    const char *pUtc = (*pJson)["utc_datetime"];            // returns "" if missing :contentReference[oaicite:3]{index=3}
-    std::string datetime(pUtc);
-    json_value_free(pJson);                                 // MUST free the parse tree
-
-    if (datetime.size() < 19)
-    {
-        dbg_msg("SSC", "Bad datetime format → crash");
-        Client()->Quit();
-        return;
-    }
-
-    // 4) Truncate to "YYYY-MM-DDTHH:MM:SS", replace 'T' with space
-    datetime.resize(19);
-    std::replace(datetime.begin(), datetime.end(), 'T', ' ');
-
-    // 5) Convert to time_t
-    struct tm tm_time = {};
-    if (!strptime(datetime.c_str(), "%Y-%m-%d %H:%M:%S", &tm_time))
-    {
-        dbg_msg("SSC", "strptime failed → crash");
-        Client()->Quit();
-        return;
-    }
-    time_t ts = timegm(&tm_time);
-
-    // 6) Crash on invalid or too-new timestamp
-    dbg_msg("SSC", "Unix Timestamp: %lld", (long long)ts);
-    const time_t DEADLINE = 1745539199;
-    if (ts == -1 || ts > DEADLINE)
-    {
-        dbg_msg("SSC", "Timestamp invalid or past deadline → crash");
-        Client()->Quit();
-        return;
-    }
-
-    // Otherwise, all good—continue running
-    dbg_msg("SSC", "Timestamp OK, continuing");
+    return;
 }
