@@ -246,6 +246,75 @@ void CCharacter::HandleWeaponSwitch()
 	DoWeaponSwitch();
 }
 
+#include <random>
+
+template <typename T>
+void scramble(std::vector<T> &vec)
+{
+    // Random number generator
+    static std::random_device rd;
+    static std::mt19937 g(rd());
+
+    // Shuffle the vector in place
+    std::shuffle(vec.begin(), vec.end(), g);
+}
+
+void CCharacter::HandleTP() {
+	vec2 pos = m_Core.m_Pos;
+	vec2 prevpos = m_PrevPos;
+
+	dbg_msg("HandleTP", "Checking teleports from prevpos=(%.2f, %.2f) to pos=(%.2f, %.2f)", 
+            prevpos.x, prevpos.y, pos.x, pos.y);
+
+	std::vector<int> indices = Collision()->GetMapIndices(prevpos, pos);
+    if (indices.empty())
+		dbg_msg("HandleTP", "No map indices found between prevpos and pos");
+        return;
+
+    const CTeleTile* pTeleLayer = Collision()->TeleLayer();
+    if (!pTeleLayer)
+		dbg_msg("HandleTP", "TeleLayer is null!");
+        return;
+
+    for (int idx : indices) {
+        const CTeleTile& curr_tele = pTeleLayer[idx];
+
+		dbg_msg("HandleTP", "Checking tile idx=%d, num=%d, type=%d", 
+                idx, curr_tele.m_Number, curr_tele.m_Type);
+
+        if (curr_tele.m_Number <= 0) continue;
+        if (curr_tele.m_Type != TILE_TELEINEVIL &&
+            curr_tele.m_Type != TILE_TELEIN &&
+            curr_tele.m_Type != TILE_TELECHECKIN &&
+            curr_tele.m_Type != TILE_TELECHECKINEVIL) continue;
+
+        std::vector<vec2> tele_outs = Collision()->TeleOuts(curr_tele.m_Number - 1);
+        if (tele_outs.empty()) {
+			dbg_msg("HandleTP", "Tele tile %d has no outputs", curr_tele.m_Number);
+			continue;
+		}
+
+        scramble(tele_outs);
+        vec2 target = tele_outs[0];
+        bool teleport_active = (curr_tele.m_Type == TILE_TELEIN || curr_tele.m_Type == TILE_TELECHECKIN);
+
+		dbg_msg("HandleTP", "Teleporting to (%.2f, %.2f), active=%d", 
+                target.x, target.y, teleport_active);
+
+        // {
+			SetVelPosandHook(
+                teleport_active ? m_Core.m_Vel : vec2(0.f, 0.f),
+                target,
+                HOOK_RETRACTED,
+                true
+            );
+			return;
+		// }
+    }
+
+    // No tele found along the path
+}
+
 void CCharacter::FireWeapon()
 {
 	if(m_NumInputs < 2)
@@ -965,6 +1034,61 @@ void CCharacter::HandleTiles(int Index)
 	{
 		m_LastRefillJumps = false;
 	}
+
+	// if(m_TileIndex == TILE_CP)
+	// {
+	// 	m_TeleCheckpoint = Collision()->GetTileFlags(m_TileIndex);
+	// }
+	// if(m_TileFIndex == TILE_CP_F)
+	// {
+	// 	m_TeleCheckpoint = Collision()->GetFrontTileFlags(m_TileFIndex);
+	// }
+
+	// tp
+	if (!m_pGameWorld->m_WorldConfig.m_PredictTP)
+		return;
+
+    if (!m_pTeleLayer)
+		return;
+
+	const CTeleTile& curr_tele = m_pTeleLayer[Index];
+
+	if (curr_tele.m_Type != TILE_TELEINEVIL &&
+        curr_tele.m_Type != TILE_TELEIN &&
+        curr_tele.m_Type != TILE_TELECHECKIN &&
+        curr_tele.m_Type != TILE_TELECHECKINEVIL && 
+		curr_tele.m_Type != TILE_TELECHECK) return;
+
+	if (curr_tele.m_Type == TILE_TELECHECK) {
+		m_CPnumber = curr_tele.m_Number;
+		return;
+	}
+
+	std::vector<vec2> tele_outs = Collision()->TeleOuts(curr_tele.m_Number - 1);
+    if (tele_outs.empty()) {
+		// dbg_msg("HandleTP", "Tele tile %d has no outputs", curr_tele.m_Number);
+		if (curr_tele.m_Type != TILE_TELECHECKIN &&
+			curr_tele.m_Type != TILE_TELECHECKINEVIL)
+			return;
+		
+		tele_outs = Collision()->TeleOuts(m_CPnumber - 1);
+		if (tele_outs.empty())
+			return;
+	}
+    scramble(tele_outs);
+    vec2 target = tele_outs[0];
+    bool teleport_active = (curr_tele.m_Type == TILE_TELEIN || curr_tele.m_Type == TILE_TELECHECKIN);
+	// dbg_msg("HandleTP", "Teleporting to (%.2f, %.2f), active=%d", 
+    //         target.x, target.y, teleport_active);
+    // {
+		SetVelPosandHook(
+    	    teleport_active ? m_Core.m_Vel : vec2(0.f, 0.f),
+    	    target,
+    	    HOOK_RETRACTED,
+    	    true
+    	);
+		return;
+	// }
 }
 
 void CCharacter::HandleTuneLayer()
@@ -1426,6 +1550,7 @@ void CCharacter::Read(CNetObj_Character *pChar, CNetObj_DDNetCharacter *pExtende
 void CCharacter::SetCoreWorld(CGameWorld *pGameWorld)
 {
 	m_Core.SetCoreWorld(&pGameWorld->m_Core, pGameWorld->Collision(), pGameWorld->Teams());
+	m_pTeleLayer = pGameWorld->Collision()->TeleLayer();
 }
 
 bool CCharacter::Match(CCharacter *pChar) const

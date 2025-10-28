@@ -4,6 +4,11 @@
 #include <game/client/prediction/gameworld.h>
 #include <game/client/gameclient.h>
 
+#ifndef M_PI
+#define M_PI  3.14159265358979323846  // pi
+#define M_PIf 3.14159265358979323846f // pi
+#endif
+
 static inline vec2 safe_normalize(const vec2 &v)
 {
     float len = length(v);
@@ -94,7 +99,7 @@ void CSSCAimbot::AimTo(CNetObj_PlayerInput *pInput, int LocalId, int id, bool si
         if(Distance > HookLength || Distance == 0)
             return; // target too far to hook
         else
-            HookTicks = round_to_int(Distance / HookSpeed);
+            HookTicks = static_cast<int>(floor(Distance / HookSpeed));
     }
     if(m_pClient->m_PredictedChar.m_ActiveWeapon == WEAPON_LASER && m_pClient->m_PredictedChar.m_Input.m_Fire)
         HookTicks = 0;
@@ -151,11 +156,11 @@ void CSSCAimbot::AimTo(CNetObj_PlayerInput *pInput, int LocalId, int id, bool si
         time += Client()->RenderFrameTime();
         float wobbleAmplitude = 1.1f;
         float wobbleFrequency = 500.0f;
-        float wobbleOffset = sinf(time * 2.0f * (float)M_PI * wobbleFrequency) * wobbleAmplitude;
+        float wobbleOffset = sinf(time * 2.0f * M_PIf * wobbleFrequency) * wobbleAmplitude;
         angleDeg += (int)wobbleOffset;
     }
 
-    float rad = angleDeg * (float)M_PI / 180.0f;
+    float rad = angleDeg * M_PIf / 180.0f;
     vec2 dir = vec2(cosf(rad), sinf(rad));
     vec2 NewTarget = vec2(int(dir.x * g_Config.m_ClMouseMaxDistance), int(dir.y * g_Config.m_ClMouseMaxDistance));
 
@@ -169,7 +174,7 @@ void CSSCAimbot::AutoAimTo(CNetObj_PlayerInput *pInput, int LocalId, float fovDe
         return;
 
     // Convert FOV to radians
-    const float fovRad = fovDeg * (float)M_PI / 180.0f;
+    const float fovRad = fovDeg * M_PIf / 180.0f;
 
     // Get local character info
     CCharacterCore *pLocalChar = &m_pClient->m_PredictedChar;
@@ -265,11 +270,35 @@ bool CSSCAimbot::AdvancedIsHookable(const vec2& from, const vec2& to, const floa
     {
         if(IsHookable(off, to + o))
         {
-            m_pClient->m_Draw.UCircleDraw(off, {1.f, 1.f, 0.f, 1.f}, 2.5f); // Yellow for offset match
+            // m_pClient->m_Draw.UCircleDraw(off, {1.f, 1.f, 0.f, 1.f}, 2.5f); // Yellow for offset match
             return true;
         }
     }
 
-    m_pClient->m_Draw.UCircleDraw(off, {1.f, 0.f, 0.f, 1.f}, 2.5f); // Red if not hookable
+    // m_pClient->m_Draw.UCircleDraw(off, {1.f, 0.f, 0.f, 1.f}, 2.5f); // Red if not hookable
     return false;
+}
+
+void CSSCAimbot::ShowFov(const float fovDeg) {
+    vec2 t = {m_pClient->m_PredictedChar.m_Input.m_TargetX, m_pClient->m_PredictedChar.m_Input.m_TargetY};
+    float cangle = atan2f(t.y, t.x);
+    float radFov = fovDeg * (M_PIf / 180.0f); // convert FOV to radians
+    float leftAngle = cangle - radFov;
+    float rightAngle = cangle + radFov;
+
+    // player position
+    vec2 pos = m_pClient->m_PredictedChar.m_Pos;
+
+    // draw lines to indicate FOV
+    m_pClient->m_Draw.CenterTo(m_pClient->m_Camera.m_Center, m_pClient->m_Camera.m_Zoom);
+
+    float lineLen = 300.0f; // length of FOV lines in pixels
+    vec2 line;
+    line.x = pos.x + cosf(leftAngle) * lineLen;
+    line.y = pos.y + sinf(leftAngle) * lineLen;
+    m_pClient->m_Draw.LineDraw(pos, line, {255.f, 55.f, 55.f, 255.f});
+
+    line.x = pos.x + cosf(rightAngle) * lineLen;
+    line.y = pos.y + sinf(rightAngle) * lineLen;
+    m_pClient->m_Draw.LineDraw(pos, line, {255.f, 55.f, 55.f, 255.f});
 }

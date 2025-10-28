@@ -13,5 +13,7 @@ public:
     bool IsHookable(const vec2& from, const vec2& to);
     bool AdvancedIsHookable(const vec2& from, const vec2& to, const float offset = OFFSET);
 
+    void ShowFov(const float fovDeg);
+
     virtual int Sizeof() const override { return sizeof(*this); }
 };

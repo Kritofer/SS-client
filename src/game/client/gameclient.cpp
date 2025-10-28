@@ -548,7 +548,7 @@ int CGameClient::OnSnapInput(int *pData, bool Dummy, bool Force)
 			m_DummyFire = 0;
 		}
 
-		if(((!Force && g_Config.m_ClSSClientTasState != 2 && g_Config.m_ClSSClientBotEnabled != 1) && (!m_DummyInput.m_Direction && !m_DummyInput.m_Jump && !m_DummyInput.m_Hook)))
+		if(((!Force && !m_SSClient.m_Force) && (!m_DummyInput.m_Direction && !m_DummyInput.m_Jump && !m_DummyInput.m_Hook)))
 		{
 			return 0;
 		}

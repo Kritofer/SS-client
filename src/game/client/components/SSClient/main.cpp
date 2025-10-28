@@ -189,9 +189,30 @@ void CSSClient::OnConsoleInit()
     ConfigManager()->RegisterCallback(&CSSClient::TempSaveC, this);
 }
 
+bool CSSClient::InpEQU(const CNetObj_PlayerInput inp0, const CNetObj_PlayerInput inp1)
+{
+    bool res = true;
+
+    res &= (inp0.m_Direction     == inp1.m_Direction);
+    res &= (inp0.m_TargetX       == inp1.m_TargetX);
+    res &= (inp0.m_TargetY       == inp1.m_TargetY);
+    res &= (inp0.m_Jump          == inp1.m_Jump);
+    res &= ((inp0.m_Fire & 1)    == (inp1.m_Fire & 1));  // fixed precedence
+    res &= (inp0.m_Hook          == inp1.m_Hook);
+    res &= (inp0.m_PlayerFlags   == inp1.m_PlayerFlags);
+    res &= (inp0.m_WantedWeapon  == inp1.m_WantedWeapon);
+    res &= (inp0.m_NextWeapon    == inp1.m_NextWeapon);
+    res &= (inp0.m_PrevWeapon    == inp1.m_PrevWeapon);
+
+    return res;
+}
+
 void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_PlayerInput *aInputdummy, int DummyId)
 {
     bool is_dummy = g_Config.m_ClDummy;
+    m_Force = false;
+
+    CNetObj_PlayerInput DoldInp = *aInputdummy;
 
     if (g_Config.m_ClSSClientTasState == 0)
         m_RecordIndex = 0;
@@ -204,7 +225,7 @@ void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_Pla
     }
     else if (g_Config.m_ClSSClientTasState == 2)
     {
-        if (g_Config.m_ClDummy)
+        if (is_dummy)
             PlayRecording(aInputdummy, DummyId, aInputdata, LocalId);
         else
             PlayRecording(aInputdata, LocalId, aInputdummy, DummyId);
@@ -228,16 +249,16 @@ void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_Pla
         g_Config.m_ClSSClientTasSmooth = 0;
     }
 
-    if (g_Config.m_ClSSClientBotHookEnabled && g_Config.m_ClSSClientBotEnabled)
-    {
-        Avoid_Freeze(aInputdata,  LocalId);
-        Avoid_Freeze(aInputdummy, DummyId);
-    }
-
     if (g_Config.m_ClSSClientBotMoveEnabled && g_Config.m_ClSSClientBotEnabled)
     {
         LeftRight_Avoid(aInputdata,  LocalId);
         LeftRight_Avoid(aInputdummy, DummyId);
+    }
+
+    if (g_Config.m_ClSSClientBotHookEnabled && g_Config.m_ClSSClientBotEnabled)
+    {
+        Avoid_Freeze(aInputdata,  LocalId);
+        Avoid_Freeze(aInputdummy, DummyId);
     }
 
     if (g_Config.m_ClSSClientFakeAimEnabled)
@@ -249,6 +270,9 @@ void CSSClient::Update(CNetObj_PlayerInput *aInputdata, int LocalId, CNetObj_Pla
     if (g_Config.m_ClSSClientAimbotEnabled)
         if (aInputdata->m_Hook || (aInputdata->m_Fire & 1))
             m_pClient->m_SSCAimbot.AutoAimTo(aInputdata, LocalId, g_Config.m_ClSSClientAimbotFov/2.f, m_pClient->m_GameWorld.m_WorldConfig.m_IsFNG);
+
+    if (InpEQU(*aInputdummy, DoldInp))
+        m_Force = true;
 
     // TODO: make this actually work
     // LaserUnfreeze(aInputdata, LocalId);
@@ -340,6 +364,10 @@ void CSSClient::OnRender()
 
     if (g_Config.m_ClSSClientPredEnabled && g_Config.m_ClSSClientTasState != 1)
         Predict_Pos();
+
+    if (g_Config.m_ClSSClientAimbotEnabled) {
+        m_pClient->m_SSCAimbot.ShowFov(g_Config.m_ClSSClientAimbotFov/2.f);
+    }
 
     else if ((!m_PredictedPos.empty()) && g_Config.m_ClSSClientTasState != 1)
     {
@@ -511,7 +539,7 @@ void CSSClient::OnRender()
             }
         }
 
-        if (m_RTime != 0)
+        if (m_RTime > 0)
         {
             // Suppose m_RTime is in server ticks; convert to total seconds first
             int totalSeconds = m_RTime / SERVER_TICK_SPEED;
@@ -561,19 +589,17 @@ void CSSClient::Fake_Aim(CNetObj_PlayerInput *pInput, int LocalId)
     }
 }
 
-int CSSClient::SimulateWithBacktracking(CCharacterCore startPredict, CNetObj_PlayerInput input, int depth)
-{
-    struct SimState
-    {
-        CCharacterCore core;
+int CSSClient::SimulateWithBacktracking(CGameWorld baseWorld, int LocalId, CNetObj_PlayerInput input, int depth) {
+    struct SimState {
+        CGameWorld world;                // store world by value (own copy)
         CNetObj_PlayerInput input;
         int step;
     };
 
     std::stack<SimState> simStack;
-    simStack.push({startPredict, input, 0});
+    simStack.push({baseWorld, input, 0});
 
-    int totalSteps = 0;
+    int bestTicks = 0;
 
     while (!simStack.empty())
     {
@@ -583,40 +609,59 @@ int CSSClient::SimulateWithBacktracking(CCharacterCore startPredict, CNetObj_Pla
         if (state.step >= depth)
             continue;
 
-        CCharacterCore predict1 = state.core;
-        CCharacterCore predict0 = state.core;
+        // remaining depth we can look ahead from this state
+        int remaining = depth - state.step;
+        if (remaining <= 0)
+            continue;
 
-        CNetObj_PlayerInput input1 = state.input;
-        CNetObj_PlayerInput input0 = state.input;
-        input0.m_Hook = !state.input.m_Hook;
-
-        bool h1 = true;
-        bool h0 = true;
-
-        int ticks1 = SimulateInput(predict1, input1, (depth-totalSteps)+1, &h1);
-        int ticks0 = SimulateInput(predict0, input0, (depth-totalSteps)+1, &h0);
-
-        if (ticks1 > ticks0)
+        for (int hookOption = 0; hookOption <= 1; ++hookOption)
         {
-            predict1.m_Input = input1;
-            SimulateStep(&predict1);
-            simStack.push({predict1, input1, state.step + 1});
-            totalSteps++;
-        }
-        if (ticks0 > ticks1)
-        {
-            predict0.m_Input = input0;
-            SimulateStep(&predict0);
-            simStack.push({predict0, input0, state.step + 1});
-            totalSteps++;
-        }
-        if (ticks0 == 0 && ticks1 == 0)
-        {
-            simStack.push({predict0, input0, state.step + 1});
+            // Create a fresh branch copy of the world for this option
+            CGameWorld branchWorld;
+            branchWorld.CopyWorld(&state.world);
+
+            // get the character pointer inside the branch copy
+            CCharacter *branchChar = branchWorld.GetCharacterById(LocalId);
+            if (!branchChar)
+                continue;
+
+            // create the input for this branch (explicitly set hook to 0/1)
+            CNetObj_PlayerInput branchInput = state.input;
+            branchInput.m_Hook = hookOption;
+
+            // Evaluate fitness on a separate eval copy so we do not mutate branchWorld
+            CGameWorld evalWorld;
+            evalWorld.CopyWorld(&branchWorld); // clone branchWorld to evaluate on
+            CCharacter *evalChar = evalWorld.GetCharacterById(LocalId);
+            if (!evalChar)
+                continue;
+
+            // choose an eval horizon (tune this: small number is cheap, bigger is better)
+            int evalHorizon = std::min(4, remaining); // example: look up to 4 ticks or remaining depth
+            int safeTicks = CountSafeTicks(&evalWorld, evalChar, branchInput, evalHorizon);
+
+            // track best fitness seen
+            if (safeTicks > bestTicks)
+                bestTicks = safeTicks;
+
+            // If this branch survived at least one tick, advance branchWorld one step and explore deeper
+            if (safeTicks > 0 && state.step + 1 < depth)
+            {
+                // advance the branch world exactly one tick using branchInput
+                CCharacter *advanceChar = branchWorld.GetCharacterById(LocalId);
+                if (!advanceChar)
+                    continue;
+                advanceChar->OnDirectInput(&branchInput);
+                branchWorld.Tick();
+
+                simStack.push({branchWorld, branchInput, state.step + 1});
+            }
+
+            // evalWorld & its pointers are local; they are destroyed here (safe)
         }
     }
 
-    return totalSteps;
+    return bestTicks;
 }
 
 // Count how many ticks (up to 'horizon') remain unfrozen
@@ -644,41 +689,123 @@ struct AFSnapshot {
     CNetObj_PlayerInput Input;
 };
 
-// Put this replacement into your .cpp (replaces the previous Avoid_Freeze)
+int CSSClient::CountSafeTicksWeighted(CGameWorld *world, CCharacter *cc, CNetObj_PlayerInput &input, int horizon, float gamma)
+{
+    float score = 0.0f;
+    float weight = 1.0f;
+
+    for (int i = 0; i < horizon; ++i)
+    {
+        cc->OnDirectInput(&input);
+        world->m_GameTick++;
+        cc->OnPredictedInput(&input);
+        world->Tick();
+
+        if (cc->m_FreezeTime <= 0)
+            score += weight;
+
+        weight *= gamma;
+    }
+
+    // Convert to approximate "safe tick count" (decayed sum)
+    return static_cast<int>(round(score));
+}
+
 void CSSClient::Avoid_Freeze(CNetObj_PlayerInput *pInput, int LocalId)
 {
     if (LocalId < 0 || LocalId >= MAX_CLIENTS)
         return;
 
-    // Get the predicted position of the local player
     CCharacterCore Predict = m_pClient->m_aClients[LocalId].m_Predicted;
     if (Predict.m_Pos == vec2(0, 0))
         return;
 
-    CGameWorld continueworld, toggleworld;
-
-    continueworld.CopyWorld(&m_pClient->m_PredictedWorld);
-    toggleworld  .CopyWorld(&m_pClient->m_PredictedWorld);
-
-    CCharacter *pLocalChar = continueworld.GetCharacterById(LocalId);
-    CCharacter *pToggleChar = toggleworld .GetCharacterById(LocalId);
-
-    if(!pLocalChar)
-        return;
-
-    CNetObj_PlayerInput keep  = *pInput;
-    CNetObj_PlayerInput toggle= *pInput;
-
+    // Only change hook — keep other inputs identical
+    CNetObj_PlayerInput keep = *pInput;
+    CNetObj_PlayerInput toggle = *pInput;
     toggle.m_Hook = !keep.m_Hook;
 
-    int horizon = g_Config.m_ClSSClientBotTick1;
-    int keep_ticks = CountSafeTicks(&continueworld, pLocalChar, keep, horizon);
-    int toggle_ticks = CountSafeTicks(&toggleworld, pToggleChar, toggle, horizon);
+    // horizons
+    int h1 = g_Config.m_ClSSClientBotTick1;
+    if (h1 <= 0) h1 = 1;
+    int h2 = h1 > 1 ? (h1 - 1) : 1;
 
-    if (toggle_ticks > keep_ticks) {
-        pInput->m_Hook = toggle.m_Hook;
+    // thresholds to determine "certain death" and required benefit
+    const int danger_threshold = 0;    // treat <= danger_threshold as imminent freeze
+    const int min_toggle_benefit = 1;  // toggle must give at least this many more safe ticks
+
+    // decay factor for weighted scoring (0.9–0.98 range)
+    const float gamma = 0.94f;
+
+    // cooldown to avoid oscillation
+    int nowTick = m_pClient->m_PredictedWorld.m_GameTick;
+    bool cooldownActive = (nowTick - m_LastHookToggleTick) < m_HookToggleCooldown;
+
+    // ---- Primary horizon evaluation ----
+    CGameWorld worldKeep, worldToggle;
+    worldKeep.CopyWorld(&m_pClient->m_PredictedWorld);
+    worldToggle.CopyWorld(&m_pClient->m_PredictedWorld);
+
+    CCharacter *ck = worldKeep.GetCharacterById(LocalId);
+    CCharacter *ct = worldToggle.GetCharacterById(LocalId);
+    if (!ck || !ct)
+        return;
+
+    int keepTicksPrimary   = CountSafeTicksWeighted(&worldKeep,  ck, keep,   h1, gamma);
+    int toggleTicksPrimary = CountSafeTicksWeighted(&worldToggle, ct, toggle, h1, gamma);
+
+    // If current path is imminent death and toggle gives measurable benefit -> toggle.
+    if (keepTicksPrimary <= danger_threshold && (toggleTicksPrimary - keepTicksPrimary) >= min_toggle_benefit)
+    {
+        if (!cooldownActive)
+        {
+            pInput->m_Hook = toggle.m_Hook;
+            m_LastHookToggleTick = nowTick;
+        }
+        return;
     }
+
+    // If primary clearly prefers keep -> do nothing
+    if (keepTicksPrimary > toggleTicksPrimary)
+        return;
+
+    // If primary clearly prefers toggle -> apply (with benefit margin)
+    if (toggleTicksPrimary > keepTicksPrimary + min_toggle_benefit)
+    {
+        if (!cooldownActive)
+        {
+            pInput->m_Hook = toggle.m_Hook;
+            m_LastHookToggleTick = nowTick;
+        }
+        return;
+    }
+
+    // ---- Tie / ambiguous case -> tie-breaker horizon ----
+    worldKeep.CopyWorld(&m_pClient->m_PredictedWorld);
+    worldToggle.CopyWorld(&m_pClient->m_PredictedWorld);
+    ck = worldKeep.GetCharacterById(LocalId);
+    ct = worldToggle.GetCharacterById(LocalId);
+    if (!ck || !ct)
+        return;
+
+    int keepTicksTie   = CountSafeTicksWeighted(&worldKeep,  ck, keep,   h2, gamma);
+    int toggleTicksTie = CountSafeTicksWeighted(&worldToggle, ct, toggle, h2, gamma);
+
+    // If current path dies soon and toggle helps -> toggle.
+    if (keepTicksTie <= danger_threshold && (toggleTicksTie - keepTicksTie) >= min_toggle_benefit)
+    {
+        if (!cooldownActive)
+        {
+            pInput->m_Hook = toggle.m_Hook;
+            m_LastHookToggleTick = nowTick;
+        }
+        return;
+    }
+
+    // Otherwise: prefer to keep current hook state to avoid oscillation.
+    return;
 }
+
 
 void CSSClient::LeftRight_Avoid(CNetObj_PlayerInput *pInput, int LocalId)
 {
@@ -836,39 +963,35 @@ void scramble(std::vector<T> &vec)
     std::shuffle(vec.begin(), vec.end(), g);
 }
 
-vec2 CSSClient::TPSimple(const vec2& pos) {
-    int curr_idx = m_pClient->Collision()->GetMapIndex(pos);
-    if (curr_idx == -1) {
-        return pos;
+std::pair<vec2, bool> CSSClient::TPSimple(const vec2& pos, const vec2& prevpos) {
+    std::vector<int> indices = m_pClient->Collision()->GetMapIndices(prevpos, pos);
+    if (indices.empty())
+        return { pos, true };
+
+    const CTeleTile* pTeleLayer = m_pClient->Collision()->TeleLayer();
+    if (!pTeleLayer)
+        return { pos, true };
+
+    for (int idx : indices) {
+        const CTeleTile& curr_tele = pTeleLayer[idx];
+
+        if (curr_tele.m_Number <= 0) continue;
+        if (curr_tele.m_Type != TILE_TELEINEVIL &&
+            curr_tele.m_Type != TILE_TELEIN &&
+            curr_tele.m_Type != TILE_TELECHECKIN &&
+            curr_tele.m_Type != TILE_TELECHECKINEVIL) continue;
+
+        std::vector<vec2> tele_outs = m_pClient->Collision()->TeleOuts(curr_tele.m_Number - 1);
+        if (tele_outs.empty()) continue;
+
+        scramble(tele_outs);
+        vec2 target = tele_outs[0];
+        bool teleport_active = (curr_tele.m_Type == TILE_TELEIN || curr_tele.m_Type == TILE_TELECHECKIN);
+        return { target, teleport_active };
     }
-    CTeleTile curr_tele = m_pClient->Collision()->TeleLayer()[curr_idx];
-    dbg_msg("SSC", "idx=%d type=%d number=%d", 
-        curr_idx,
-        curr_tele.m_Type,
-        curr_tele.m_Number
-    );
-    if(curr_tele.m_Number <= 0) return pos;
-    if (curr_tele.m_Type != TILE_TELEINEVIL && curr_tele.m_Type != TILE_TELEIN && curr_tele.m_Type != TILE_TELECHECKIN && curr_tele.m_Type != TILE_TELECHECKINEVIL) { // 10??
-        return pos;
-    } 
 
-    std::vector<vec2> tele_outs = m_pClient->Collision()->TeleOuts(curr_tele.m_Number - 1);
-    if (tele_outs.empty()) {
-        return pos;
-    }
-
-    for (auto &vpos : tele_outs) {
-        dbg_msg("VECTOR", "pos: (%.2f, %.2f)", vpos.x, vpos.y);
-    }
-
-    // if (tele_outs.empty()) {
-    //     return pos;
-    // }
-
-    scramble(tele_outs);
-
-    dbg_msg("SSC","tas touching tele!!!!");
-    return tele_outs[0]; // just to show that its touching
+    // No tele found along the path
+    return { pos, true };
 }
 
 void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj_PlayerInput *dInput, int DummyId)
@@ -1004,6 +1127,7 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
     baseWorld.m_WorldConfig.m_PredictFreeze = true;
     baseWorld.m_WorldConfig.m_PredictDDRace = baseWorld.m_WorldConfig.m_IsDDRace;
     baseWorld.m_WorldConfig.m_PredictWeapons = true;
+    baseWorld.m_WorldConfig.m_PredictTP = true;
 
     CCharacter *pLocalChar = baseWorld.GetCharacterById(LocalId);
     if(!pLocalChar)
@@ -1036,39 +1160,43 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
         if (hasdummy)
             pLocalDummy->OnPredictedInput(&dinp);
 
-        vec2 tp_out = TPSimple(pLocalChar->GetCore().m_Pos);
-        if(tp_out != pLocalChar->m_Pos)
-        {
-            auto Core = pLocalChar->GetCore();
-            Core.m_Pos = tp_out;
-            pLocalChar->m_Pos = tp_out;
-            pLocalChar->m_PrevPos = tp_out;
-            Core.m_Vel = vec2(0,0);
-            Core.m_HookState = HOOK_IDLE;
-            Core.m_HookPos = tp_out;
-            pLocalChar->SetCore(Core);
-        }
+        // std::pair x = TPSimple(pLocalChar->m_Pos, pLocalChar->m_PrevPos);
+        // vec2 tp_out = x.first;
+        // if(tp_out != pLocalChar->m_Pos)
+        // {
+        //     dbg_msg("SSC", "tp_ing to %s", FormatVec2(tp_out).c_str());
+// 
+        //     pLocalChar->SetVelPosandHook(
+        //         x.second ? pLocalChar->Core()->m_Vel : vec2(0.f, 0.f),
+        //         tp_out,
+        //         HOOK_RETRACTED,
+        //         true
+        //     );
+        // }
+ // 
+        // if (hasdummy) {
+        //     x = TPSimple(pLocalDummy->m_Pos, pLocalDummy->m_PrevPos);
+        //     tp_out = x.first;
+        //     if(tp_out != pLocalDummy->m_Pos)
+        //     {
+        //         dbg_msg("SSC", "dummy tp_ing to %s", FormatVec2(tp_out).c_str());
+        //         
+        //         pLocalDummy->SetVelPosandHook(
+        //             x.second ? pLocalChar->Core()->m_Vel : vec2(0.f, 0.f),
+        //             tp_out,
+        //             HOOK_RETRACTED,
+        //             true
+        //         );
+        //     }
+        // }
 
-        if (hasdummy) {
-            tp_out = TPSimple(pLocalDummy->GetCore().m_Pos);
-            if(tp_out != pLocalDummy->m_Pos)
-            {
-                auto Core = pLocalDummy->GetCore();
-                Core.m_Pos = tp_out;
-                pLocalDummy->m_Pos = tp_out;
-                pLocalDummy->m_PrevPos = tp_out;
-                Core.m_Vel = vec2(0,0);
-                Core.m_HookState = HOOK_IDLE;
-                Core.m_HookPos = tp_out;
-                pLocalDummy->SetCore(Core);
-            }
-        }
+        float tileX = (g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->GetPos().x;
+        float tileY = (g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->GetPos().y;
+        TeePos = vec2(tileX, tileY);
 
         baseWorld.Tick();
 
         // // Check current tile
-        float tileX = (g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->m_Pos.x;
-        float tileY = (g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->m_Pos.y;
         // int mindex = baseWorld.Collision()->GetMapIndex({tileX, tileY});
         // int index = baseWorld.Collision()->FrontLayer()[mindex].m_Index;
         // if (index == TILE_START)
@@ -1080,7 +1208,6 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
         //     last = baseWorld.m_GameTick;
         // }
 
-        TeePos = vec2(tileX, tileY);
         m_TasPos.push_back(TeePos);
     }
 
@@ -1099,16 +1226,16 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
             pLocalDummy->OnPredictedInput(&dinp);
 
         // Check current tile
-        int tileX = round_to_int((g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->GetPos().x / 32);
-        int tileY = round_to_int((g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->GetPos().y / 32);
-        if (baseWorld.Collision()->GetFrontIndex(tileX, tileY) == TILE_START || baseWorld.Collision()->GetIndex(tileX, tileY) == TILE_START)
-        {
-            race = baseWorld.m_GameTick;
-        }
-        else if ((baseWorld.Collision()->GetFrontIndex(tileX, tileY) == TILE_FINISH || baseWorld.Collision()->GetIndex(tileX, tileY) == TILE_FINISH) && last == -1)
-        {
-            last = baseWorld.m_GameTick;
-        }
+        // int tileX = round_to_int((g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->GetPos().x / 32);
+        // int tileY = round_to_int((g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->GetPos().y / 32);
+        // if (baseWorld.Collision()->GetFrontIndex(tileX, tileY) == TILE_START || baseWorld.Collision()->GetIndex(tileX, tileY) == TILE_START)
+        // {
+        //     race = baseWorld.m_GameTick;
+        // }
+        // else if ((baseWorld.Collision()->GetFrontIndex(tileX, tileY) == TILE_FINISH || baseWorld.Collision()->GetIndex(tileX, tileY) == TILE_FINISH) && last == -1)
+        // {
+        //     last = baseWorld.m_GameTick;
+        // }
 
         baseWorld.Tick();
         TeePos = (g_Config.m_ClDummy ? pLocalDummy : pLocalChar)->GetPos();
@@ -1148,6 +1275,36 @@ void CSSClient::StartRecording(CNetObj_PlayerInput *pInput, int LocalId, CNetObj
 
             if (hasdummy)
             {befd->OnPredictedInput(&kInput);}
+
+            // std::pair x = TPSimple(bef->m_Pos, bef->m_PrevPos);
+            // vec2 tp_out = x.first;
+            // if(tp_out != bef->m_Pos)
+            // {
+            //     dbg_msg("SSC", "tp_ing to %s", FormatVec2(tp_out).c_str());
+// 
+            //     bef->SetVelPosandHook(
+            //         x.second ? bef->Core()->m_Vel : vec2(0.f, 0.f),
+            //         tp_out,
+            //         HOOK_RETRACTED,
+            //         true
+            //     );
+            // }
+        // 
+            // if (hasdummy) {
+            //     x = TPSimple(befd->m_Pos, befd->m_PrevPos);
+            //     tp_out = x.first;
+            //     if(tp_out != befd->m_Pos)
+            //     {
+            //         dbg_msg("SSC", "dummy tp_ing to %s", FormatVec2(tp_out).c_str());
+// 
+            //         befd->SetVelPosandHook(
+            //             x.second ? befd->Core()->m_Vel : vec2(0.f, 0.f),
+            //             tp_out,
+            //             HOOK_RETRACTED,
+            //             true
+            //         );
+            //     }
+            // }
 
             before.Tick();
 

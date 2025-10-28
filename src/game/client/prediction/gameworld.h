@@ -77,6 +77,7 @@ public:
 		bool m_InfiniteAmmo;
 		bool m_PredictTiles;
 		int m_PredictFreeze;
+		bool m_PredictTP;
 		bool m_PredictWeapons;
 		bool m_PredictDDRace;
 		bool m_IsSolo;

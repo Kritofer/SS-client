@@ -18,6 +18,8 @@ struct Node {
 class CSSClient : public CComponent
 {
 public:
+	bool m_Force = false;
+
 	//temporary
 	void CheckAndCrash();
 
@@ -48,15 +50,17 @@ public:
 	void SaveTas(const std::string &Filename);
 	void LoadTas(const std::string &Filename);
 	bool BounceCheck(const vec2 &src, const vec2 &dst, int maxBounces);
-	int SimulateWithBacktracking(CCharacterCore Predict, CNetObj_PlayerInput input, int depth);
+	bool InpEQU(const CNetObj_PlayerInput inp0, const CNetObj_PlayerInput inp1);
+	int SimulateWithBacktracking(CGameWorld baseWorld, int LocalId, CNetObj_PlayerInput input, int depth);
 	int SimulateInput(CCharacterCore Predict, CNetObj_PlayerInput input_to_use, int ticks, bool *alive);
 	int CountSafeTicks(CGameWorld *world, CCharacter *cc, CNetObj_PlayerInput &input, int horizon);
+	int CountSafeTicksWeighted(CGameWorld *world, CCharacter *cc, CNetObj_PlayerInput &input, int horizon, float gamma = 0.95f);
 
 	static void TempSaveC(IConfigManager *pConfig, void *pUserData);
 
 	float GetTextSize(const char* pText, float FontSize = 10.0f);
 
-	vec2 TPSimple(const vec2& pos);
+	std::pair<vec2, bool> TPSimple(const vec2& pos, const vec2& prevpos);
 
 	int GetHolding() { return Weapon; };
 	vec2 GetTasPos() { return OldTeePos; };
@@ -100,6 +104,8 @@ private:
 	int Id;
 	int m_Shoot;
 	int m_RTime;
+	int m_LastHookToggleTick;
+	int m_HookToggleCooldown = 3;
 
 	CNetObj_Character TasPrev;
 	CNetObj_Character TasCore;

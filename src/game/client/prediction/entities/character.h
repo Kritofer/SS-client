@@ -8,6 +8,8 @@
 #include <game/gamecore.h>
 #include <game/generated/protocol.h>
 
+class CTeleTile;
+
 enum
 {
 	FAKETUNE_FREEZE = 1 << 0,
@@ -29,6 +31,8 @@ public:
 	void PreTick() override;
 	void Tick() override;
 	void TickDeferred() override;
+
+	void HandleTP();
 
 	bool IsGrounded();
 
@@ -112,6 +116,16 @@ public:
 	int GetAttackTick() { return m_AttackTick; }
 	int GetStrongWeakId() { return m_StrongWeakId; }
 
+	void SetVelPosandHook(vec2 Vel, vec2 Pos, int HookState, bool Prevpos_reset = false) { 
+		m_Core.m_Pos = Pos;
+		m_Core.m_Vel = Vel;
+		m_Core.m_HookState = HookState;
+		m_Pos = Pos;
+		if (Prevpos_reset) {
+			m_PrevPos = m_Pos;
+		}
+	}
+
 	CCharacter(CGameWorld *pGameWorld, int Id, CNetObj_Character *pChar, CNetObj_DDNetCharacter *pExtended = nullptr);
 	void Read(CNetObj_Character *pChar, CNetObj_DDNetCharacter *pExtended, bool IsLocal);
 	void SetCoreWorld(CGameWorld *pGameWorld);
@@ -164,6 +178,10 @@ private:
 
 	// the player core for the physics
 	CCharacterCore m_Core;
+
+	// SSC
+	const CTeleTile* m_pTeleLayer;
+	int m_CPnumber;
 
 	// DDRace
 
